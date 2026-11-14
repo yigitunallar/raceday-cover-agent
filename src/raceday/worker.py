@@ -33,6 +33,9 @@ def _log_resume() -> None:
     """On start, any unproven ledger action for an open task means we crashed mid-write: say so."""
     try:
         d = dbm.db()
+        # Investigation locks belong to the process that took them. A fresh worker means that process is
+        # gone (killed), so its locks are released now instead of blocking those horses for 90 s.
+        d[dbm.TASKS].update_many({"investigating_since": {"$ne": None}}, {"$set": {"investigating_since": None}})
         open_ids = [t["_id"] for t in d[dbm.TASKS].find({"status": {"$in": OPEN}}, {"_id": 1})]
         steps: dict[str, list[str]] = {}
         for a in d[dbm.ACTIONS].find({"task_id": {"$in": open_ids}, "state": {"$ne": "verified"}},
