@@ -93,9 +93,10 @@ def scoreboard():
     for row in dbm.db()[dbm.TASKS].aggregate([{"$group": {"_id": "$status", "n": {"$sum": 1}}}]):
         counts[row["_id"]] = row["n"]
     declared = sum(counts.values())
-    accounted = sum(counts.get(s, 0) for s in ("covered", "referred", "not_confirmed", "not_eligible"))
+    accounted = sum(counts.get(s, 0) for s in ("covered", "referred", "not_confirmed", "not_eligible", "cancelled"))
     return {"declared": declared, "covered": counts.get("covered", 0), "referred": counts.get("referred", 0),
             "not_confirmed": counts.get("not_confirmed", 0), "not_eligible": counts.get("not_eligible", 0),
+            "cancelled": counts.get("cancelled", 0),
             "in_progress": declared - accounted, "by_status": counts, "systems": mock_summary(),
             "agent_running": _running()}
 
@@ -216,3 +217,13 @@ def voice_answer(body: VoiceAnswer, x_webhook_secret: str = Header(default="")):
         return {"ok": False, "message": "Thanks. That answer could not be recorded: already answered or too late."}
     return {"ok": True, "message": "Thank you, the answer is recorded."}
 
+
+@app.post("/tasks/{task_id}/cancel")
+def cancel_task(task_id: str):
+    """The owner cancels. Before the horse leaves the stable: refund the premium and cancel the policy,
+    each proven by read-back. After it has left: cover has started, no refund. Safe to repeat."""
+    from ..agent import cancel as cancel_module
+    out = cancel_module.request(task_id)
+    if out is None:
+        raise HTTPException(404, "unknown task")
+    return _clean(out)
