@@ -61,3 +61,10 @@ PYTHONPATH=src .venv/bin/python -m pytest -q tests
 - Never commit `.env` or any key.
 - No real insurer names, prices, limits or policy wording. Every number is invented.
 - No production data and no licensed racing-feed data.
+
+## Earlier design drafts
+
+Krish's drafts from Nov 13. They planned TypeScript; the team has since chosen Python. Where they differ from [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), the architecture doc is current.
+
+- [High-level design](docs/superpowers/specs/2026-11-13-insurance-claim-agent-design.md)
+- [Low-level design](docs/superpowers/specs/2026-11-13-raceday-cover-agent-lld.md)
