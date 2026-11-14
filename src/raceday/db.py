@@ -1,5 +1,6 @@
 """MongoDB access. Atlas is the record of what was intended and what was proven."""
 import os
+import threading
 import time
 from functools import lru_cache
 
@@ -61,6 +62,7 @@ def ensure_indexes() -> None:
 
 _vector_mode: str | None = None
 _vector_ready = False
+_vector_lock = threading.Lock()  # the worker runs horses in threads: create the index once
 
 
 def vector_mode() -> str | None:
@@ -80,6 +82,13 @@ def ensure_vector_index(wait_seconds: float = 0) -> str | None:
     Returns "auto" or "local" once the index is queryable, or None if it is not
     queryable within wait_seconds.
     """
+    if _vector_ready:
+        return _vector_mode
+    with _vector_lock:
+        return _ensure_vector_index(wait_seconds)
+
+
+def _ensure_vector_index(wait_seconds: float) -> str | None:
     global _vector_mode, _vector_ready
     if _vector_ready:
         return _vector_mode
