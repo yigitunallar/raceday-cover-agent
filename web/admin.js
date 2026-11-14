@@ -1,4 +1,4 @@
-const API = location.hostname === "localhost" || location.hostname === "127.0.0.1" ? "https://raceday-cover-agent.onrender.com" : location.origin;
+const API = "https://raceday-cover-agent.onrender.com";
 const $ = id => document.getElementById(id);
 const esc = value => String(value ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 let tasks = [];
