@@ -72,7 +72,7 @@ def main():
     if new_id not in saved_ids or old_id in saved_ids or saved['prompt'].get('prompt') != updated_prompt:
         raise RuntimeError('Update response did not match expected agent configuration; inspect before calling')
     untouched = [key for key in agent if key not in ('first_message', 'prompt', 'dynamic_variables')]
-    prompt_keys = [key for key in prompt if key not in ('prompt', 'tool_ids')]
+    prompt_keys = [key for key in prompt if key not in ('prompt', 'tool_ids', 'tools')]  # tools mirrors tool_ids
     old_vars = (agent.get('dynamic_variables') or {}).get('dynamic_variable_placeholders') or {}
     new_vars = (saved.get('dynamic_variables') or {}).get('dynamic_variable_placeholders') or {}
     if any(saved.get(key) != agent.get(key) for key in untouched) or any(saved['prompt'].get(key) != prompt.get(key) for key in prompt_keys) or any(new_vars.get(k) != v for k, v in old_vars.items()):
