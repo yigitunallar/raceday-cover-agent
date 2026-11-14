@@ -35,11 +35,11 @@ Risk factors:
 - **Official rating** from the racing authority.
 - **The race:** type and class.
 
-The table gives the base (race type and class, times the owner's share); the risk factors adjust it. Code computes the price. The agent gathers the factors and explains the result in plain words, for example "priced higher: five runs in 30 days, failed to finish last time". The model never sets a price.
+The sum insured is the owner's own figure, or the insurer's default value for the race kind and rating band when they give none (see [MOCK_DATA.md](MOCK_DATA.md)), times the owner's share. Flat and jumps have different rates; the risk factors adjust the premium. Code computes the price. The agent gathers the factors and explains the result in plain words, for example "priced higher: five runs in 30 days, failed to finish last time". The model never sets a price.
 
 ## Underwriting: two lanes
 
-- **Value:** the sum insured is either under the insurer's authority limit or over it.
+- **Value:** the sum insured is either under the insurer's authority limit or over it. The agent also checks the owner's figure against its own valuation evidence; a large gap goes into the pack.
 - **Health:** today's declaration is clean, adverse, or contradicts the horse's past declarations.
 
 **Clean lane** (under the limit, clean answer, no contradiction): the owner confirms the horse is fit to run, then the agent pays, issues the policy and reports it to the insurer immediately, with proof that each step took effect.
