@@ -8,17 +8,38 @@ This agent takes a standing instruction, "cover my runners", and finishes the jo
 
 All data in this repo is invented. No real insurer, horse, owner, price or limit appears here.
 
-The current Python planning draft proposes a narrower first slice: assess one horse and save a starting-gate quote. Payment and policy actions remain part of the broader demo architecture and are deferred in that draft for review.
+**Live demo:** https://raceday-cover-agent.vercel.app · **API:** https://raceday-cover-agent.onrender.com
 
-## How it works
+## Try to break it (2 minutes)
 
-- **The model decides what to do next. Code decides whether it is allowed and whether it worked.**
-- Every change to an outside system goes through one guarded write: **guard → save intent → call with an operation ID → read back → record**. Only a verified read-back lets a task move on.
-- After a crash the agent reads back first. Found: continue. Not found: re-send with the same operation ID. Nothing is sent twice.
-- Each horse gets a **risk profile** (health, form, workload, breeding, official rating). The insurer's rules turn it into a price, with the reasons shown.
-- Two lanes: **clean** (inside the limit, owner confirms fit to run, then pay, issue, report) and **referral** (over the limit, adverse answer, or a contradiction with past declarations: no charge, an underwriter gets a one-page pack).
+1. Open the live demo. Press **Load race meeting**, **Owners confirm fit to run**, then **Kill right after the next charge**, then **Start agent**.
+2. The agent dies the moment its first charge goes through, before it hears back: the money has moved, no policy exists.
+3. Press **Start agent** again. It reads back from every system before acting, and finishes the meeting.
+4. Check the scoreboard: every system shows **0 duplicates**. One charge, one policy, one insurer record per horse.
+5. Now break a system: choose **insurer → Rename fields → Break it** and run again. The model maps the new fields once; the next time, **Atlas Vector Search** finds the saved fix and it takes one step.
 
-Full design: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+## Where MongoDB Atlas does the work
+
+| Need | Atlas feature | Where |
+|---|---|---|
+| Resume an agent mid-task after a kill | LangGraph **MongoDB checkpointer** (task ID = thread ID) | `agent/graph.py` |
+| Prove what took effect in the outside world | `actions` ledger, **unique index on the operation ID**, intent saved before every call | `ledger.py`, `db.py` |
+| Learn from past failures | **Atlas Vector Search** with **automated embeddings** (voyage-4) over `cases` | `agent/schema_recovery.py` |
+| Explain every decision | `timeline` events, per-horse investigation trail, referral packs | `agent/investigator.py`, `agent/decider.py` |
+| Durable mock systems | each outside system's records live in Atlas, so a restart loses nothing | `mocks/app.py` |
+
+## Where the model decides (and where code says no)
+
+The core rule: **the model decides what to do next; code decides whether it is allowed and whether it worked.** Full design: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+
+| The model decides | Code decides |
+|---|---|
+| Which evidence to check for each horse, one step at a time | Which checks the insurer requires before a price is allowed |
+| How to recover when a step can't be proven (read back, re-send same ID, refund, escalate) | Which of those moves are allowed right now |
+| How to map a renamed field | Whether the mapping is valid; whether the action is verified |
+| The words: price explanations, underwriter packs, the phone call | Every number, checked against the facts the model was given |
+
+The one human moment, the owner's "is the horse fit to run?", is a **real phone call**: an ElevenLabs voice agent over a Twilio number, whose answer comes back through our API. An unclear answer counts as no answer, never yes.
 
 ## Layout
 
