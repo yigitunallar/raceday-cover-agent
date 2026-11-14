@@ -1,6 +1,8 @@
-"""Invented demo data: one race meeting, twelve declared runners.
+"""Invented demo data: one race day at an invented Irish course. See docs/MOCK_DATA.md.
 
-Every horse, owner, race and number here is made up.
+Every horse, owner, course, sale and number here is made up. The shapes copy
+real racing feeds, including their traps: numbers as strings, a display-only
+off_time, and race_status stages.
 
     python -m raceday.seed
 """
@@ -9,8 +11,71 @@ from datetime import datetime, timedelta, timezone
 from . import db as dbm
 from . import rules
 
-NAMES = ["Copper Lantern", "Quiet Harbour", "Maple Verdict", "Tin Whistle", "Northern Ledger", "Salt Meadow",
-         "Paper Comet", "Velvet Anchor", "Second Draft", "Winter Almanac", "Harbour Clerk", "Plain Sailing"]
+COURSE = "Kilbarrow"
+
+
+def _race(race_id, name, rtype, pattern, hours, status="declared", now=None):
+    off = (now + timedelta(hours=hours)).replace(second=0, microsecond=0)
+    h12 = off.hour % 12 or 12
+    return {
+        "race_id": race_id, "date": off.date().isoformat(), "off_dt": off,
+        "off_time": f"{h12}:{off.minute:02d}",  # display only: 12-hour, no am/pm
+        "course": COURSE, "region": "IRE", "race_name": f"{COURSE} {name}", "type": rtype,
+        "race_class": "", "pattern": pattern, "field_size": "0", "is_abandoned": False,
+        "race_status": status, "runners": [], "updatedAt": now,
+    }
+
+
+# horse_id, name, race_id, sex, age, rating, owner, share, stated value, add-ons, story
+RUNNERS = [
+    ("hrs_d01", "Copper Lantern", "rac_k2", "Gelding", 5, 82, "own_1", 1.0, None, [], "clean"),
+    ("hrs_d02", "Tin Whistle", "rac_k2", "Mare", 4, 84, "own_2", 1.0, None, [], "busy"),
+    ("hrs_d03", "Northern Ledger", "rac_k1", "Colt", 3, 104, "own_3", 1.0, 450_000, ["vet_fees"], "overvalued"),
+    ("hrs_d04", "Velvet Anchor", "rac_k4", "Gelding", 8, 128, "own_4", 1.0, None, [], "contradiction"),
+    ("hrs_d05", "Salt Meadow", "rac_k5", "Gelding", 6, None, "own_1", 0.5, None, ["life_saving_surgery"], "pre_existing"),
+    ("hrs_d06", "Paper Comet", "rac_k3", "Filly", 3, None, "own_2", 1.0, None, [], "no_answer"),
+    ("hrs_d07", "Second Draft", "rac_k6", "Gelding", 7, 118, "own_3", 1.0, None, [], "entry_stage"),
+    ("hrs_d08", "Harbour Clerk", "rac_k2", "Gelding", 6, 76, "own_4", 1.0, None, [], "duplicate_name"),
+    ("hrs_d09", "Harbour Clerk", "rac_k5", "Gelding", 5, None, "own_1", 1.0, None, [], "duplicate_name"),
+    ("hrs_d10", "Winter Almanac", "rac_k3", "Colt", 3, None, "own_3", 0.5, None, [], "clean"),
+    ("hrs_d11", "Plain Sailing", "rac_k4", "Gelding", 9, 131, "own_2", 1.0, None, ["vet_fees"], "clean"),
+    ("hrs_d12", "Maple Verdict", "rac_k1", "Filly", 3, 98, "own_4", 1.0, None, [], "clean"),
+    ("hrs_d13", "Quiet Harbour", "rac_k4", "Mare", 7, 122, "own_1", 1.0, None, [], "long_absence"),
+]
+
+OWNERS = {"own_1": "IE", "own_2": "IE", "own_3": "GB", "own_4": "IE"}
+
+
+def _profile(i, horse_id, name, rating, story, now):
+    day = lambda n: (now - timedelta(days=n)).date().isoformat()
+    p = {
+        "horse_id": horse_id, "horse": name,
+        "official_rating": str(rating) if rating is not None else "",  # strings, sometimes empty
+        "breeding": {"sire": f"Sire {chr(65 + i)}", "dam": f"Dam {chr(80 - i)}", "risk_band": "AAB"[i % 3]},
+        "runs": [{"date": day(35 + i * 3), "race_id": f"rac_hist_{i}a", "finished": True, "position": str(2 + i % 5)},
+                 {"date": day(70 + i * 4), "race_id": f"rac_hist_{i}b", "finished": True, "position": str(1 + i % 6)}],
+        "career_earnings": str(8_000 + i * 3_500),
+        "sales": [{"date": day(500 + i * 40), "venue": "Invented Bloodstock Sale", "price": 15_000 + i * 4_000}],
+        "health_records": [{"date": day(120 + i), "kind": "vet exam", "result": "cleared"}],
+        "declarations": [{"date": day(35 + i * 3), "race_id": f"rac_hist_{i}a", "fit": True, "given_by": "owner"}],
+        "updatedAt": now,
+    }
+    if story == "busy":  # same race as Copper Lantern: higher price, with reasons
+        p["runs"] = [{"date": day(n), "race_id": f"rac_hist_b{n}", "finished": n != 4, "position": "PU" if n == 4 else "6"}
+                     for n in (27, 20, 13, 8, 4)]
+    if story == "overvalued":  # owner says 450k; evidence says far less
+        p["sales"] = [{"date": day(400), "venue": "Invented Bloodstock Sale", "price": 62_000}]
+        p["career_earnings"] = "41000"
+    if story == "contradiction":  # declared unfit two weeks ago
+        p["declarations"].append({"date": day(14), "race_id": "rac_hist_x", "fit": False, "given_by": "owner",
+                                  "note": "lame after work"})
+    if story == "pre_existing":  # known condition: excluded, not priced
+        p["health_records"].append({"date": day(400), "kind": "tendon scan", "result": "issue", "pre_existing": True,
+                                    "condition": "left fore tendon"})
+    if story == "long_absence":
+        p["runs"] = [{"date": day(260), "race_id": "rac_hist_q", "finished": True, "position": "3"}]
+        p["health_records"].append({"date": day(40), "kind": "x-ray", "result": "issue"})
+    return p
 
 
 def run() -> dict:
@@ -19,47 +84,43 @@ def run() -> dict:
     now = datetime.now(timezone.utc)
     d[dbm.INSURER_RULES].insert_one({**rules.DEFAULT_RULES})
 
-    races = [
-        {"race_id": "rac_demo_1", "course": "Elmfield", "region": "GB", "type": "Flat", "race_class": "4",
-         "race_name": "Elmfield Handicap", "off_dt": now + timedelta(hours=5), "race_status": "declared"},
-        {"race_id": "rac_demo_2", "course": "Elmfield", "region": "GB", "type": "Chase", "race_class": "2",
-         "race_name": "Elmfield Chase", "off_dt": now + timedelta(hours=6), "race_status": "declared"},
-        {"race_id": "rac_demo_3", "course": "Elmfield", "region": "GB", "type": "Flat", "race_class": "1",
-         "race_name": "Elmfield Stakes", "off_dt": now + timedelta(hours=7), "race_status": "declared"},
-    ]
-    d[dbm.RACES].insert_many([dict(r) for r in races])
+    races = {r["race_id"]: r for r in [
+        _race("rac_k1", "Stakes", "Flat", "Group 3", 6, now=now),
+        _race("rac_k2", "Handicap", "Flat", "", 5, now=now),
+        _race("rac_k3", "Maiden", "Flat", "", 4, now=now),
+        _race("rac_k4", "Handicap Chase", "Chase", "", 7, now=now),
+        _race("rac_k5", "Maiden Hurdle", "Hurdle", "", 7.5, now=now),
+        _race("rac_k6", "Novice Chase", "Chase", "", 26, status="entry", now=now),
+    ]}
 
+    instructions: dict[str, dict] = {}
     tasks = []
-    for i, name in enumerate(NAMES):
-        horse_id = f"hrs_demo_{i + 1:02d}"
-        race = races[2] if i == 11 else races[i % 2]
-        profile = {
-            "horse_id": horse_id, "horse": name, "age": str(3 + i % 6),
-            "official_rating": str(55 + i * 4),  # feeds send numbers as strings
-            "breeding": {"sire": f"Sire {i + 1}", "dam": f"Dam {i + 1}", "risk_band": "ABC"[i % 3]},
-            "runs": [{"date": (now - timedelta(days=40 + i)).date().isoformat(), "race_id": "rac_old", "finished": True, "position": 3}],
-            "health_records": [], "declarations": [], "updatedAt": now,
-        }
-        if i == 1:  # heavy workload and a failed run: same race as horse 3, higher price
-            profile["runs"] = [{"date": (now - timedelta(days=n)).date().isoformat(), "race_id": f"rac_old_{n}",
-                                "finished": n != 4, "position": 6} for n in (26, 19, 12, 8, 4)]
-        if i == 4:  # a recent health issue
-            profile["health_records"] = [{"date": (now - timedelta(days=30)).date().isoformat(), "kind": "vet exam", "result": "issue"}]
-        if i == 7:  # declared unfit two weeks ago: a clean answer today contradicts it
-            profile["declarations"] = [{"date": (now - timedelta(days=14)).date().isoformat(), "race_id": "rac_old", "fit": False, "given_by": "owner"}]
-        d[dbm.HORSE_PROFILES].insert_one(profile)
+    for i, (hid, name, rid, sex, age, rating, owner, share, stated, add_ons, story) in enumerate(RUNNERS):
+        race = races[rid]
+        race["runners"].append({"horse_id": hid, "horse": name, "age": str(age), "sex": sex,
+                                "ofr": str(rating) if rating is not None else "", "owner_id": owner,
+                                "trainer_id": f"trn_{i % 3 + 1}", "number": str(len(race["runners"]) + 1)})
+        d[dbm.HORSE_PROFILES].insert_one(_profile(i, hid, name, rating, story, now))
+        # When the horse leaves the yard. "No answer" horse's has already passed.
+        leaves = now - timedelta(minutes=5) if story == "no_answer" else race["off_dt"] - timedelta(hours=3)
+        entry = {"horse_id": hid, "ownership_share": share, "stated_value": stated, "add_ons": add_ons, "leaves_yard_at": leaves}
+        instructions.setdefault(owner, {"owner_id": owner, "country": OWNERS[owner], "cover_declared_runners": True,
+                                        "entries": []})["entries"].append(entry)
         tasks.append({
-            "_id": f"task_{race['race_id']}_{horse_id}", "horse_id": horse_id, "horse": name,
-            "race": {k: race[k] for k in ("race_id", "race_name", "type", "race_class", "region", "off_dt")},
-            "owner_id": f"own_demo_{i % 4 + 1}", "owner_country": "IE" if i % 4 == 3 else "GB",
-            "ownership_share": 1.0 if i != 5 else 0.5,
-            # "Loading deadline": when the horse leaves the stable.
-            "deadline": race["off_dt"] - timedelta(hours=3),
+            "_id": f"task_{rid}_{hid}", "horse_id": hid, "horse": name, "story": story,
+            "race": {k: race[k] for k in ("race_id", "race_name", "type", "pattern", "race_status", "off_dt", "off_time")},
+            "runner": {"ofr": str(rating) if rating is not None else ""},
+            "owner_id": owner, "ownership_share": share, "stated_value": stated, "add_ons": add_ons,
+            "deadline": leaves,  # internal name "loading deadline": when the horse leaves the stable
             "status": "new", "lane": None, "confirmation": None, "quote": None,
             "created_at": now, "updated_at": now,
         })
+    for r in races.values():
+        r["field_size"] = str(len(r["runners"]))
+    d[dbm.RACES].insert_many(list(races.values()))
+    d[dbm.INSTRUCTIONS].insert_many(list(instructions.values()))
     d[dbm.TASKS].insert_many(tasks)
-    return {"races": len(races), "runners": len(tasks)}
+    return {"races": len(races), "runners": len(tasks), "owners": len(instructions)}
 
 
 if __name__ == "__main__":

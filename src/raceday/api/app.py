@@ -77,10 +77,10 @@ def referrals():
 def confirm(task_id: str, body: Confirmation):
     """The owner's single fit-to-run answer for this race."""
     result = dbm.db()[dbm.TASKS].update_one(
-        {"_id": task_id, "confirmation": None},
+        {"_id": task_id, "confirmation": None, "deadline": {"$gt": datetime.now(timezone.utc)}},
         {"$set": {"confirmation": {"fit": body.fit, "given_by": body.given_by, "at": datetime.now(timezone.utc)}}})
     if not result.matched_count:
-        raise HTTPException(409, "unknown task, or already answered")
+        raise HTTPException(409, "unknown task, already answered, or the horse has left the stable")
     return {"ok": True}
 
 

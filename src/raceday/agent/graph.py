@@ -46,6 +46,10 @@ def _refer(task: dict[str, Any], reason: str) -> State:
     d[dbm.REFERRALS].update_one({"_id": task["_id"]}, {"$set": {
         "task_id": task["_id"], "reason": reason, "decision": None,
         "pack": {"why": reason, "horse": task.get("horse"), "quote": task.get("quote"),
+                 "owner_value": task.get("stated_value"),
+                 "agent_valuation": (task.get("quote") or {}).get("valuation"),
+                 "rating": profile.get("official_rating"), "breeding": profile.get("breeding"),
+                 "runs": profile.get("runs", []), "health_records": profile.get("health_records", []),
                  "declarations": profile.get("declarations", []), "deadline": task["deadline"]},
         "created_at": datetime.now(timezone.utc)}}, upsert=True)
     _set(task["_id"], status="referred", lane="referral", referral_reason=reason)
@@ -56,9 +60,13 @@ def price(state: State) -> State:
     """Build the risk profile's findings and price the horse from the insurer's rules."""
     task = _task(state)
     d = dbm.db()
+    if task["race"].get("race_status") != "declared":
+        _set(task["_id"], status="not_eligible", reason=f"race is at '{task['race'].get('race_status')}', not declared")
+        return {"status": "not_eligible"}
     profile = d[dbm.HORSE_PROFILES].find_one({"horse_id": task["horse_id"]}) or {}
     rule_doc = d[dbm.INSURER_RULES].find_one(sort=[("version", -1)]) or rules.DEFAULT_RULES
-    q = rules.quote(task["race"], task["ownership_share"], task["owner_country"], profile, rule_doc)
+    q = rules.quote(task["race"], task.get("runner", {}), task["ownership_share"], profile,
+                    stated_value=task.get("stated_value"), add_ons=task.get("add_ons"), rules=rule_doc)
     _set(task["_id"], quote=q)
     if not q["offerable"]:
         _set(task["_id"], status="not_eligible", reason=q["reason"])

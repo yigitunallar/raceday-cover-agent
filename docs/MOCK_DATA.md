@@ -19,7 +19,7 @@ The agent's own valuation (from sales, earnings, breeding and rating) does not s
 - **Two optional add-ons at fixed prices:** life-saving surgery and vet fees, each priced separately for Flat and jumps.
 - **Authority limit:** above it, refer.
 - **Cover period:** from leaving the training yard to returning to it, 48 hours at most. This is the "before the horse leaves the stable" deadline.
-- **Pre-existing conditions are excluded.** A known condition is listed as an exclusion on the policy; a recent or undeclared one is referred.
+- **Pre-existing conditions are excluded.** A known condition is listed as an exclusion on the policy; a recent issue raises the price.
 
 ## Collections to seed
 

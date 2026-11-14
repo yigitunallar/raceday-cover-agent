@@ -55,7 +55,7 @@
   </div>
 
   <h2>Runners</h2>
-  <div class="wrap"><table><thead><tr><th>Horse</th><th>Race</th><th>Status</th><th>Price</th><th>Why</th><th></th></tr></thead><tbody id="rows"></tbody></table></div>
+  <div class="wrap"><table><thead><tr><th>Horse</th><th>Race</th><th>Status</th><th>Sum insured</th><th>Price</th><th>Why</th><th></th></tr></thead><tbody id="rows"></tbody></table></div>
 </main>
 <script src="config.js"></script>
 <script>
@@ -79,11 +79,17 @@ async function refresh() {
       `<div class="tile"><b>${v.records}</b><span>${esc(k)} records, ${v.duplicates} duplicates</span></div>`).join("");
     $("rows").innerHTML = list.map(t => {
       const q = t.quote || {};
-      const why = t.referral_reason || (q.risk_factors || []).map(f => f.evidence).join(", ") || (q.offerable ? "standard risk" : "");
-      const price = q.offerable ? `${esc(q.currency)} ${q.total.toFixed(2)}` : "";
+      const reasons = [];
+      if (t.referral_reason) reasons.push(t.referral_reason);
+      if (t.reason) reasons.push(t.reason);
+      (q.risk_factors || []).forEach(f => reasons.push(f.evidence));
+      (q.exclusions || []).forEach(x => reasons.push("excludes " + x));
+      if (q.valuation && q.valuation.gap_flagged) reasons.push(`owner's value far above evidence (${(q.valuation.evidence || []).join(", ")})`);
+      if (q.offerable) reasons.push(q.value_basis);
+      const money = n => `${esc(q.currency)} ${Number(n).toLocaleString(undefined, { maximumFractionDigits: 2, minimumFractionDigits: n < 1000 ? 2 : 0 })}`;
       const ask = t.status === "awaiting_owner" ? `<button data-fit="${esc(t._id)}">Fit to run</button>` : "";
-      return `<tr><td>${esc(t.horse)}</td><td>${esc(t.race.race_name)}</td><td><span class="pill ${esc(t.status)}">${esc(label(t.status))}</span></td><td class="num">${price}</td><td class="why">${esc(why)}</td><td>${ask}</td></tr>`;
-    }).join("") || `<tr><td colspan="6" class="why">No runners yet. Load the race meeting.</td></tr>`;
+      return `<tr><td>${esc(t.horse)} <span class="why">${esc(t.horse_id)}</span></td><td>${esc(t.race.race_name)}</td><td><span class="pill ${esc(t.status)}">${esc(label(t.status))}</span></td><td class="num">${q.offerable ? money(q.sum_insured) : ""}</td><td class="num">${q.offerable ? money(q.total) : ""}</td><td class="why">${esc(reasons.join(" · "))}</td><td>${ask}</td></tr>`;
+    }).join("") || `<tr><td colspan="7" class="why">No runners yet. Load the race meeting.</td></tr>`;
   } catch (e) { $("state").textContent = "Cannot reach the API at " + API; }
 }
 const act = (id, fn) => $(id).addEventListener("click", async () => { $(id).disabled = true; try { await fn(); } finally { $(id).disabled = false; refresh(); } });
