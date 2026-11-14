@@ -15,7 +15,7 @@ from langgraph.graph import END, START, StateGraph
 from .. import config, rules
 from .. import db as dbm
 from ..ledger import Outcome, guarded_write
-from . import cancel, decider, investigator, writer
+from . import cancel, decider, investigator, outreach, writer
 from .tools import look_up, send
 
 
@@ -131,6 +131,10 @@ def confirm(state: State) -> State:
             _set(task["_id"], status="not_confirmed")
             return {"status": "not_confirmed"}
         _set(task["_id"], status="awaiting_owner")
+        try:  # the model decides how (and whether) to reach the owner now
+            outreach.maybe_reach_owner(task)
+        except Exception as e:  # noqa: BLE001 - reaching out must never block the horse
+            print(f"{task['_id']}: outreach error {e!r}", flush=True)
         return {"status": "awaiting_owner"}
     profile = dbm.db()[dbm.HORSE_PROFILES].find_one({"horse_id": task["horse_id"]}) or {}
     if not answer["fit"]:

@@ -45,6 +45,15 @@ RUNNERS = [
 
 OWNERS = {"own_1": "IE", "own_2": "IE", "own_3": "GB", "own_4": "IE"}
 
+# How each invented owner likes to be reached. The agent reads this before deciding
+# whether to call, remind in the app, or wait. Quiet hours are also enforced in code.
+OWNER_CONTACT = {
+    "own_1": {"prefers": "phone", "notes": "Wants a phone call as soon as cover is priced; rarely opens the app."},
+    "own_2": {"prefers": "app", "notes": "Answers app reminders within minutes. Do not call unless the horse is about to leave."},
+    "own_3": {"prefers": "phone", "quiet_until": "16:00", "notes": "Trainer is at the gallops: no calls before 4 PM Toronto time."},
+    "own_4": {"prefers": "phone", "notes": "Happy with calls, but already confirmed by phone for two horses this morning."},
+}
+
 
 def _profile(i, horse_id, name, rating, story, now):
     day = lambda n: (now - timedelta(days=n)).date().isoformat()
@@ -110,7 +119,7 @@ def run() -> dict:
             "_id": f"task_{rid}_{hid}", "horse_id": hid, "horse": name, "story": story,
             "race": {k: race[k] for k in ("race_id", "race_name", "type", "pattern", "race_status", "off_dt", "off_time")},
             "runner": {"ofr": str(rating) if rating is not None else ""},
-            "owner_id": owner, "ownership_share": share, "stated_value": stated, "add_ons": add_ons,
+            "owner_id": owner, "owner_contact": OWNER_CONTACT[owner], "outreach": [], "ownership_share": share, "stated_value": stated, "add_ons": add_ons,
             "deadline": leaves,  # internal name "loading deadline": when the horse leaves the stable
             "status": "new", "lane": None, "confirmation": None, "quote": None,
             "created_at": now, "updated_at": now,

@@ -188,6 +188,7 @@
     <div class="steps">
       <button id="demoStart" class="primary">⚡ Demo start (ready in ~30 s)</button>
       <button id="confirmButOne">Confirm all but Copper Lantern</button>
+      <button id="autoCall">🤖 Agent calls owners: OFF</button>
       <button id="seed"><span class="n">1</span>Load race meeting</button>
       <button id="confirmAll"><span class="n">2</span>Owners confirm fit to run</button>
       <button id="start" class="primary"><span class="n">3</span>Start agent</button>
@@ -366,7 +367,7 @@ function normaliseTimeline(data) {
     const at = e.at || e.ts || e.time || e.created_at || e.updated_at;
     const who = e.horse || (tasks.find(t => t._id === e.task_id) || {}).horse;
     const d = e.detail && typeof e.detail === "object" ? e.detail : null;
-    const decided = e.kind === "investigate" && d ? `Investigated ${String(d.tool || "").replace(/^get_/, "").replace(/_/g, " ")}${d.why ? " · " + d.why : ""}` : e.kind === "agent_decision" && d ? `Model decided: ${label(d.move)} (${d.step} at ${d.system}) · ${d.reason || ""}${d.source === "template" ? " [fallback]" : ""}` : null;
+    const decided = e.kind === "outreach_decision" && d ? `Outreach: ${({call_now: "☎️ call the owner now", app_reminder: "📱 in-app reminder", wait: "⏳ wait"})[d.move] || d.move} · ${d.reason || ""}${d.refused ? " [code refused: " + d.refused + "]" : ""}` : e.kind === "investigate" && d ? `Investigated ${String(d.tool || "").replace(/^get_/, "").replace(/_/g, " ")}${d.why ? " · " + d.why : ""}` : e.kind === "agent_decision" && d ? `Model decided: ${label(d.move)} (${d.step} at ${d.system}) · ${d.reason || ""}${d.source === "template" ? " [fallback]" : ""}` : null;
     const what = decided || e.message || e.text || e.summary || (d ? [label(e.kind), d.system, d.move || d.state || (d.mapping ? "fields mapped" : "")].filter(Boolean).join(": ") : e.detail) || [label(e.event || e.kind || e.type), e.step && label(e.step), e.state && label(e.state)].filter(Boolean).join(": ");
     const k = String(e.kind || e.event || e.type || e.state || "").toLowerCase();
     const cls = /kill|crash|lost|reject|mismatch|fail|error/.test(k) ? "bad" : /recover|resum|verified|found/.test(k) ? "good" : /retry|resend|re-send|refer/.test(k) ? "warn" : "";
@@ -478,6 +479,13 @@ act("demoStart", async () => {
   if (r.ok && r.data) { open.clear(); actionsCache = {}; referrals = {}; lastStatus = {}; killedAt = null;
     note(`Ready in ${Math.round(r.data.seconds || 0)} s: ${(r.data.awaiting_owner || []).length} horses waiting for the owner`, "good"); }
   else note("Demo start failed", "bad");
+});
+let autoCallOn = false;
+const showAutoCall = () => { $("autoCall").textContent = `🤖 Agent calls owners: ${autoCallOn ? "ON" : "OFF"}`; $("autoCall").classList.toggle("primary", autoCallOn); };
+call("/control/auto-call").then(r => { if (r.ok) { autoCallOn = !!r.data.auto_call; showAutoCall(); } });
+act("autoCall", async () => {
+  const r = await call("/control/auto-call?on=" + (!autoCallOn), "POST");
+  if (r.ok) { autoCallOn = !!r.data.auto_call; showAutoCall(); note(autoCallOn ? "Agent may now decide to call, remind or wait for each owner" : "Agent calling switched off", autoCallOn ? "warn" : ""); }
 });
 act("confirmButOne", async () => {
   const r = await call("/control/confirm-all-but-one?keep=" + encodeURIComponent("Copper Lantern"), "POST");

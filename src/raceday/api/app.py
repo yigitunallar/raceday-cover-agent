@@ -316,3 +316,17 @@ def cancel_task(task_id: str):
     if out is None:
         raise HTTPException(404, "unknown task")
     return _clean(out)
+
+
+@app.post("/control/auto-call")
+def control_auto_call(on: bool):
+    """The switch for agent-initiated phone calls (off by default, so tests never ring the demo phone)."""
+    from ..agent import outreach
+    outreach.set_auto_calls(on)
+    return {"ok": True, "auto_call": outreach.auto_calls_on()}
+
+
+@app.get("/control/auto-call")
+def control_auto_call_state():
+    from ..agent import outreach
+    return {"auto_call": outreach.auto_calls_on()}
