@@ -155,6 +155,9 @@ def price(state: State) -> State:
 def confirm(state: State) -> State:
     """The owner answers once per race. The agent never answers for them."""
     task = _task(state)
+    if task.get("owner_health_followup") and not task.get("investigation"):
+        _set(task["_id"], status="new")
+        return {"status": "new"}
     answer = task.get("confirmation")
     if answer is None:
         if _left_stable(task):

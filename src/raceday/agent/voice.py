@@ -52,6 +52,7 @@ def phone_variables(task: dict[str, Any], profile: dict[str, Any] | None = None)
     required = not task.get("owner_health_followup") and (not (profile or {}).get("health_records") or
         any(word in history for word in ("unknown", "unclear", "incomplete")))
     return {
+        "missing_information": str((task.get("investigation") or {}).get("summary") or "No investigation summary available.")[:1000],
         "health_followup_required": "yes" if required else "no",
         "health_question": ("Please describe the horse's health history, recent vet examination, any known conditions, and follow-up still needed." if required else "No additional health question is required."),
         "task_id": task["_id"], "horse": task.get("horse", "your horse"),

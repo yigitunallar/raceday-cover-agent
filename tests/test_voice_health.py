@@ -10,6 +10,7 @@ def test_missing_health_is_passed_to_phone_agent():
     task = {'_id': 't1', 'horse_id': 'h1', 'horse': 'Demo', 'investigation': {'summary': 'Health history unknown.'}}
     variables = voice.phone_variables(task, {'health_records': []})
     assert variables['health_followup_required'] == 'yes'
+    assert variables['missing_information'] == 'Health history unknown.'
     assert 'health' in variables['health_question'].lower()
     assert voice.phone_variables(task, {'health_records': [{'result': 'clear'}]})['health_followup_required'] == 'no'
 
@@ -73,3 +74,13 @@ def test_not_fit_answer_does_not_require_missing_health(monkeypatch):
     fields = db[api.dbm.TASKS].update_one.call_args.args[1]['$set']
     assert result['ok']
     assert fields['confirmation']['fit'] is False
+
+
+def test_confirmation_waits_for_updated_investigation(monkeypatch):
+    from raceday.agent import graph
+    task = {'_id': 't1', 'confirmation': {'fit': True}, 'owner_health_followup': {'notes': 'Vet follow-up'}, 'investigation': None}
+    monkeypatch.setattr(graph, '_task', lambda _: task)
+    changes = []
+    monkeypatch.setattr(graph, '_set', lambda _tid, **fields: changes.append(fields))
+    assert graph.confirm({'task_id':'t1'}) == {'status':'new'}
+    assert changes[-1]['status'] == 'new'

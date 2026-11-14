@@ -20,8 +20,9 @@ PUBLIC = os.environ.get("PUBLIC_API_URL", "https://raceday-cover-agent.onrender.
 VOICE = os.environ.get("ELEVENLABS_VOICE", "JBFqnCBsd6RMkjVDRZzb")
 
 PROMPT = """You are the raceday cover agent calling about {{horse}} in {{race}}.
-First check whether {{health_followup_required}} is yes. If yes, ask {{health_question}}. Record what the owner
-actually says as health_notes. Set health_resolved false if details remain unknown; never invent medical facts.
+The investigation summary is: {{missing_information}}. Identify any missing information in it that the owner
+can reasonably supply, and ask focused questions about those gaps. If {{health_followup_required}} is yes, also ask
+{{health_question}}. Record the owner's answers to all follow-up questions together as health_notes. Set health_resolved false if details remain unknown; never invent medical facts.
 Then ask whether the horse is fit to run today. Only a clear yes or no counts; if unclear ask once more.
 Call record_answer once with the clear answer and, when health follow-up is required, the health_notes. Read back
 what you recorded, thank the owner and end. Do not invent an answer, give veterinary advice, change prices, or promise cover.
@@ -59,7 +60,7 @@ def agent() -> None:
                           "task_id": "test", "horse": "Copper Lantern", "race": "Kilbarrow Handicap",
                           "cover": "60,000 euros", "price": "378.00 euros including tax",
                           "reasons": "no extra risk factors", "exclusions": "none",
-                          "health_followup_required": "yes", "health_question": "Please describe the horse's health history and any follow-up."}}},
+                          "missing_information": "Health history unknown.", "health_followup_required": "yes", "health_question": "Please describe the horse's health history and any follow-up."}}},
             "tts": {"voice_id": VOICE}}})
     print("agent:", r.status_code, r.text[:300])
     r.raise_for_status()
