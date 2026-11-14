@@ -29,5 +29,3 @@
 .activity-item.proof .activity-icon{background:#e7f3ec;color:#2f7d55}
 .activity-item.call .activity-icon{background:#fbf0e2;color:#c9822b}
 .activity-item.bad .activity-icon{background:#f6e6e3;color:#ad584f}
-
-.fitness{border:1px solid #dfe5d9;border-radius:8px;margin:18px 0 0;padding:14px}.fitness legend{font-size:12px;font-weight:700;color:#566452;padding:0 5px}.fitness label{display:inline-flex;align-items:center;gap:6px;margin:4px 16px 4px 0;font-weight:500}.fitness input{width:auto;margin:0}.fitness small{display:block;color:#80887b;margin-top:7px}
