@@ -1,0 +1,12 @@
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const vm = require('node:vm');
+const js = fs.readFileSync('web/admin.js', 'utf8');
+const helper = js.match(/function visibleTasks\(items\)\s*\{[^}]*\}/);
+assert.ok(helper, 'visibility helper exists');
+const ctx = {};
+vm.createContext(ctx);
+vm.runInContext(helper[0] + ';globalThis.visible = visibleTasks;', ctx);
+const result = ctx.visible([{_id:'hidden',hidden_from_dashboard:true},{_id:'shown'},{_id:'false',hidden_from_dashboard:false}]);
+assert.deepEqual(Array.from(result, x => x._id), ['shown','false']);
+console.log('Dashboard visibility respects the task flag');

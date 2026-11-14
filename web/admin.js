@@ -2,6 +2,7 @@ const API = "https://raceday-cover-agent.onrender.com";
 const $ = id => document.getElementById(id);
 const esc = value => String(value ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 let tasks = [];
+function visibleTasks(items) { return items.filter(task => task.hidden_from_dashboard !== true); }
 const fmtMoney = (n, cur) => { try { return new Intl.NumberFormat(undefined, { style: "currency", currency: cur || "EUR" }).format(Number(n)); } catch (_) { return `${cur || ""} ${Number(n).toFixed(2)}`; } };
 function render() {
   const query = $("search").value.toLowerCase();
@@ -21,7 +22,7 @@ async function refresh() {
   try {
     const [health, data] = await Promise.all([request("/health"), request("/tasks")]);
     if (!Array.isArray(data)) throw new Error("Unexpected task response");
-    tasks = data;
+    tasks = visibleTasks(data);
     $("connection").textContent = "Connected to Render";
     $("workerState").textContent = health.agent_running ? "Agent running" : "Agent stopped";
     $("workerDot").className = "worker-dot" + (health.agent_running ? " running" : "");
