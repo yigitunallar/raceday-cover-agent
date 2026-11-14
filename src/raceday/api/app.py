@@ -7,6 +7,7 @@ import os
 import signal
 import subprocess
 import sys
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -215,4 +216,92 @@ def voice_answer(body: VoiceAnswer, x_webhook_secret: str = Header(default="")):
     if not result.matched_count:
         return {"ok": False, "message": "Thanks. That answer could not be recorded: already answered or too late."}
     return {"ok": True, "message": "Thank you, the answer is recorded."}
+
+
+# --- Demo controls: one call to the interesting starting state -------------------------
+
+DEMO_UNSETTLED = ("new", "priced")  # not yet investigated and priced
+DEMO_KEEP_DEFAULT = "Copper Lantern"
+
+
+def _status_counts() -> dict[str, int]:
+    return {row["_id"]: row["n"] for row in
+            dbm.db()[dbm.TASKS].aggregate([{"$group": {"_id": "$status", "n": {"$sum": 1}}}])}
+
+
+def _demo_settled(counts: dict[str, int]) -> bool:
+    """Every horse investigated and priced: none left at new or priced."""
+    return bool(sum(counts.values())) and not any(counts.get(s) for s in DEMO_UNSETTLED)
+
+
+def _awaiting_owner() -> list[dict]:
+    rows = dbm.db()[dbm.TASKS].find({"status": "awaiting_owner"},
+                                   {"horse": 1, "race.race_name": 1, "deadline": 1}).sort("deadline", 1)
+    return _clean([{"task_id": t["_id"], "horse": t.get("horse"), "race": (t.get("race") or {}).get("race_name"),
+                    "deadline": t.get("deadline")} for t in rows])
+
+
+@app.post("/control/demo-start")
+def control_demo_start(timeout: float = 150.0):
+    """Kill, reset, seed, start the agent, and wait until every horse is investigated and priced.
+
+    Owners are not confirmed, so horses stop at awaiting_owner (over-limit ones are referred,
+    the past-deadline one is not_confirmed, the entry-stage one is not_eligible). The agent is
+    left running, so a confirmation goes straight on to charge, issue and report.
+    """
+    from concurrent.futures import ThreadPoolExecutor, wait
+
+    from ..agent.graph import build, run_task
+
+    t0 = time.monotonic()
+    control_kill()
+    dbm.reset_all()
+    seeded = seed_module.run()
+    # Price every horse in parallel here, before the agent starts: the agent works one horse at
+    # a time and would take minutes. No owner has answered, so no task gets past awaiting_owner:
+    # nothing is charged here. run_task is the agent's own resumable step, checkpointed per task.
+    graph = build()
+    ids = [t["_id"] for t in dbm.db()[dbm.TASKS].find({"status": {"$in": list(DEMO_UNSETTLED)}}, {"_id": 1})]
+    pool = ThreadPoolExecutor(max_workers=max(1, min(len(ids), 13)))
+    futures = [pool.submit(run_task, graph, tid) for tid in ids]
+    wait(futures, timeout=max(1.0, timeout - (time.monotonic() - t0)))
+    pool.shutdown(wait=False, cancel_futures=True)
+    errors = [repr(f.exception()) for f in futures if f.done() and f.exception()]
+    control_start()  # the agent picks up anything left, and carries confirmed horses on to cover
+    ready = False
+    while time.monotonic() - t0 < timeout:
+        if _demo_settled(_status_counts()):
+            ready = True
+            break
+        if not _running():
+            break
+        time.sleep(1.0)
+    out = {"ok": ready, "ready": ready, "seconds": round(time.monotonic() - t0, 1), "seeded": seeded,
+           "by_status": _status_counts(), "awaiting_owner": _awaiting_owner(), "agent_running": _running(),
+           "errors": errors}
+    if not ready:
+        out["message"] = "timed out, or the agent stopped, before every horse was priced"
+    return out
+
+
+@app.post("/control/confirm-all-but-one")
+def control_confirm_all_but_one(keep: str = DEMO_KEEP_DEFAULT):
+    """Confirm fit to run for every horse awaiting its owner, except `keep` (left for the live call).
+
+    Same guard as /tasks/{id}/confirm: a horse already past its deadline, or already answered, is skipped.
+    """
+    now = datetime.now(timezone.utc)
+    confirmed, skipped = [], []
+    for t in dbm.db()[dbm.TASKS].find({"status": "awaiting_owner", "confirmation": None}).sort("deadline", 1):
+        if t.get("horse") == keep:
+            skipped.append({"task_id": t["_id"], "horse": t.get("horse"), "why": "kept for the live call"})
+            continue
+        result = dbm.db()[dbm.TASKS].update_one(
+            {"_id": t["_id"], "confirmation": None, "deadline": {"$gt": now}},
+            {"$set": {"confirmation": {"fit": True, "given_by": "owner (demo control)", "at": now}}})
+        if result.matched_count:
+            confirmed.append({"task_id": t["_id"], "horse": t.get("horse")})
+        else:
+            skipped.append({"task_id": t["_id"], "horse": t.get("horse"), "why": "past deadline or already answered"})
+    return {"ok": True, "kept": keep, "confirmed": confirmed, "skipped": skipped, "agent_running": _running()}
 

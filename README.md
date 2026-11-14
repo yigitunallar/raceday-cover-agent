@@ -73,3 +73,20 @@ PYTHONPATH=src .venv/bin/python -m pytest -q tests
 - [Earlier low-level draft](docs/superpowers/specs/2026-11-13-raceday-cover-agent-lld.md) (superseded by the current Python review draft)
 
 The quote-first LLD is a planning proposal for review and has not been reconciled with the full workflow in the existing architecture and scaffold. Review that scope difference before changing implementation.
+
+## Demo controls
+
+Two calls put the demo straight into its interesting state, so the presenter skips the minutes of pricing.
+
+**`POST /control/demo-start`** kills any running agent, resets, seeds the meeting, prices every horse in parallel, then starts the agent and returns once no horse is left at `new` or `priced` (about 50 s; gives up after `?timeout=150` seconds). No owner has confirmed, so horses wait at `awaiting_owner`; the over-limit horse is already `referred`, the past-deadline one `not_confirmed`, the entry-stage one `not_eligible`. The agent stays running, so any confirmation goes straight on to charge, issue and report. Response: `ready`, `seconds`, `by_status`, `awaiting_owner` (task id, horse, race, deadline), `errors`.
+
+```bash
+curl -s -X POST http://localhost:8000/control/demo-start
+```
+
+**`POST /control/confirm-all-but-one?keep=<horse name>`** confirms fit to run for every horse awaiting its owner except `keep` (default `Copper Lantern`), so the meeting runs to cover while one horse is kept for the live phone call. Horses already past their deadline or already answered are skipped, as in `/tasks/{id}/confirm`.
+
+```bash
+curl -s -X POST "http://localhost:8000/control/confirm-all-but-one"
+curl -s -X POST "http://localhost:8000/control/confirm-all-but-one?keep=Tin%20Whistle"
+```
