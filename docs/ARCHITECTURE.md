@@ -59,6 +59,7 @@ The agent never accepts a risk outside the limit and never answers the declarati
 | `insurer_rules` | one version of the insurer's rules | sum insured table, rates, risk adjustments, tax, authority limit |
 | `cases` | one solved problem | what failed, which system, what fixed it; embedded for Vector Search |
 | `system_profiles` | what we believe about one system | field names and shapes, versioned |
+| `timeline` | one recovery event for a task | kind (schema change detected, case found, model mapping, mapping validated), detail, duration |
 | `checkpoints` | LangGraph's own | managed by the checkpointer |
 | `mock_operations`, `mock_chaos` | the mock systems' state | kept in Atlas so a restart loses nothing |
 
@@ -108,7 +109,7 @@ It can never mark an action verified, move money outside the rules, or answer th
 - Every write takes an operation ID and is safe to repeat with the same ID.
 - Every system answers "does operation X exist, and with what result?"
 - Chaos controls: lose the response, reject, rename fields. Killing the agent is done outside the mocks.
-- Reset clears Atlas and all mock systems together.
+- Reset clears Atlas and all mock systems together, except `cases`: what the agent learned survives a new race day.
 
 ## The demo
 
@@ -128,7 +129,16 @@ Every declared runner ends in one accounted state: covered, referred, not confir
 3. Risk profile and price, with reasons. **Done (rules only; the model's explanation is next)**
 4. Referral lane and the pack. **Done (raw facts; the model's summary is next)**
 5. Full race meeting and the scoreboard. **Done**
-6. Renamed field, and the second fix in one step.
+6. Renamed field, and the second fix in one step. **Done** (`agent/schema_recovery.py`)
+
+### How the renamed-field recovery works
+
+A read-back that is not `{operation_id, reference, payload}` triggers recovery (`agent/schema_recovery.py`):
+
+1. Atlas `$vectorSearch` on `cases` (index `cases_vector`, filtered on `system` and `failure_type: "schema_mismatch"`). The index uses Atlas automated embedding (`autoEmbed`, voyage-4) on the case's `description`; if a cluster rejects that, `db.ensure_vector_index` falls back to a 256-dim hashed bag-of-words vector on `embedding`. A matching case's mapping is validated and applied: one step.
+2. No case: the model is asked for a field mapping as JSON, nothing else.
+3. Code validates every mapping: targets must be canonical fields, sources must exist in the response, the mapped `operation_id` must equal the one asked for, `payload` must be an object. The ledger's own intended-versus-held comparison still decides "verified".
+4. Saves a new `system_profiles` version, writes a `cases` document (model path only), retries only that read. Every step goes to `timeline`, served by `GET /timeline?task_id=`.
 7. Lost report to the insurer. **Done in the ledger; needs a demo beat**
 8. Cancellation and refund.
 

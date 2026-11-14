@@ -4,6 +4,7 @@ from typing import Any
 import httpx
 
 from .. import config
+from . import schema_recovery
 
 
 def send(system: str):
@@ -16,16 +17,20 @@ def send(system: str):
 
 
 def look_up(system: str):
-    def _read(op_id: str) -> dict[str, Any] | None:
+    def _fetch(op_id: str) -> dict[str, Any] | None:
         r = httpx.get(f"{config.MOCKS_URL}/{system}/operations/{op_id}", timeout=10)
         if r.status_code == 404:
             return None
         r.raise_for_status()
-        body = r.json()
-        if "payload" not in body:
-            # TODO(agent): the system changed its field names. This is where the model
-            # reads the new response, proposes a mapping, saves a new system_profiles
-            # version, writes a case for Vector Search, and retries only this step.
-            raise ValueError(f"unrecognised response shape from {system}: {sorted(body)}")
-        return body
+        return r.json()
+
+    def _read(op_id: str) -> dict[str, Any] | None:
+        body = _fetch(op_id)
+        if body is None or schema_recovery.is_canonical(body):
+            return body
+        # The system changed its field names. Find a past fix (Vector Search) or ask
+        # the model for a mapping; code validates it, saves a new system_profiles
+        # version, writes a case, and retries only this read. Raises MappingError
+        # (the ledger then records "unable to determine") if no safe mapping exists.
+        return schema_recovery.recover(system, op_id, body, refetch=lambda: _fetch(op_id))
     return _read

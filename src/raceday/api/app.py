@@ -126,3 +126,11 @@ def control_kill():
     _agent.send_signal(signal.SIGKILL)
     _agent.wait(timeout=5)
     return {"ok": True, "was_running": True}
+
+
+@app.get("/timeline")
+def timeline(task_id: str | None = None, limit: int = 200):
+    """Recovery events (schema change detected, case found, model mapping, mapping validated)."""
+    query = {"task_id": task_id} if task_id else {}
+    rows = dbm.db()[dbm.TIMELINE].find(query, {"_id": 0}).sort("at", 1).limit(min(limit, 1000))
+    return _clean(list(rows))
