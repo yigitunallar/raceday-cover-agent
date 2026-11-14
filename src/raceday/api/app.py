@@ -8,6 +8,7 @@ import signal
 import subprocess
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -98,17 +99,22 @@ def confirm(task_id: str, body: Confirmation):
     return {"ok": True}
 
 
+_POOL = ThreadPoolExecutor(max_workers=4, thread_name_prefix="scoreboard")
+
+
 @app.get("/scoreboard")
 def scoreboard():
+    systems = _POOL.submit(mock_summary)  # the two round trips run side by side
     counts: dict[str, int] = {}
-    for row in dbm.db()[dbm.TASKS].aggregate([{"$group": {"_id": "$status", "n": {"$sum": 1}}}]):
+    for row in dbm.db()[dbm.TASKS].aggregate([{"$match": {"quote_only": {"$ne": True}}},
+                                              {"$group": {"_id": "$status", "n": {"$sum": 1}}}]):
         counts[row["_id"]] = row["n"]
     declared = sum(counts.values())
     accounted = sum(counts.get(s, 0) for s in ("covered", "referred", "not_confirmed", "not_eligible", "cancelled"))
     return {"declared": declared, "covered": counts.get("covered", 0), "referred": counts.get("referred", 0),
             "not_confirmed": counts.get("not_confirmed", 0), "not_eligible": counts.get("not_eligible", 0),
             "cancelled": counts.get("cancelled", 0),
-            "in_progress": declared - accounted, "by_status": counts, "systems": mock_summary(),
+            "in_progress": declared - accounted, "by_status": counts, "systems": systems.result(timeout=10),
             "agent_running": _running()}
 
 
@@ -140,7 +146,16 @@ def control_kill():
         return {"ok": True, "was_running": False}
     _agent.send_signal(signal.SIGKILL)
     _agent.wait(timeout=5)
+    _log_killed(None, "Agent killed: the plug was pulled")
     return {"ok": True, "was_running": True}
+
+
+def _log_killed(task_id: str | None, message: str) -> None:
+    try:
+        dbm.db()[dbm.TIMELINE].insert_one({"task_id": task_id, "at": datetime.now(timezone.utc), "kind": "killed",
+                                           "detail": {"system": "agent", "message": message}, "duration_ms": None})
+    except Exception:  # noqa: BLE001 - logging never blocks a kill
+        pass
 
 
 @app.post("/control/kill-after-charge")
@@ -155,12 +170,13 @@ def control_kill_after_charge():
     return {"ok": True, "armed": True, "agent_running": _running()}
 
 
-def _kill_after_write(system: str) -> None:
+def _kill_after_write(system: str, task_id: str | None = None) -> None:
     doc = dbm.db()[dbm.MOCK_CHAOS].find_one_and_update(
         {"system": f"kill_after:{system}", "count": {"$gt": 0}}, {"$inc": {"count": -1}})
     if doc and _running():
         _agent.send_signal(signal.SIGKILL)
         _agent.wait(timeout=5)
+        _log_killed(task_id, "Agent killed right after the charge, before hearing back")
 
 
 mocks_after_write.append(_kill_after_write)

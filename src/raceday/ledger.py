@@ -71,22 +71,42 @@ def guarded_write(
         except DuplicateKeyError:
             pass  # another run saved the intent first; fall through and read back
 
+    sent = False
     for _ in range(max_attempts):
         # Read back FIRST: an earlier attempt may have landed even though we never heard.
         outcome, evidence = _check(read_back, op_id, intended)
         if outcome == Outcome.VERIFIED:
+            if existing and existing.get("state") == "intent" and not sent:
+                return _recovered(op_id, task_id, step, system, evidence)
             return _record(op_id, outcome, evidence)
         if outcome == Outcome.MISMATCHED:
             return _record(op_id, outcome, evidence)  # never paper over a wrong result
         if outcome == Outcome.NOT_FOUND:
             actions.update_one({"operation_id": op_id}, {"$inc": {"attempts": 1}, "$set": {"updated_at": now()}})
+            sent = True
             try:
                 call(op_id, intended)
             except Exception:  # noqa: BLE001 - the call's own answer is never trusted
                 pass
         # UNKNOWN: loop and ask again
     outcome, evidence = _check(read_back, op_id, intended)
+    if outcome == Outcome.VERIFIED and existing and existing.get("state") == "intent" and not sent:
+        return _recovered(op_id, task_id, step, system, evidence)
     return _record(op_id, outcome, evidence)
+
+
+def _recovered(op_id: str, task_id: str, step: str, system: str, evidence) -> dict[str, Any]:
+    """An intent from an earlier run was found already held by the system: done before the crash."""
+    if isinstance(evidence, dict):
+        evidence = {**evidence, "found_on_read_back": True}
+    try:
+        dbm.db()[dbm.TIMELINE].insert_one({
+            "task_id": task_id, "at": now(), "kind": "recovered", "duration_ms": None,
+            "detail": {"system": system, "step": step,
+                       "message": "Already done before the crash: read back, not sent again"}})
+    except Exception:  # noqa: BLE001 - the timeline never blocks the ledger
+        pass
+    return _record(op_id, Outcome.VERIFIED, evidence)
 
 
 def _check(read_back, op_id: str, intended: dict[str, Any]):

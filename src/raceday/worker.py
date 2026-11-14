@@ -10,6 +10,7 @@ task is never run twice at the same time inside one process.
 """
 import os
 import time
+from datetime import datetime, timezone
 from concurrent.futures import Future, ThreadPoolExecutor
 
 from . import db as dbm
@@ -28,8 +29,26 @@ def _run_one(graph, task_id: str, before: str) -> None:
         print(f"{task_id}: error {e!r}; will retry on the next poll", flush=True)
 
 
+def _log_resume() -> None:
+    """On start, any unproven ledger action for an open task means we crashed mid-write: say so."""
+    try:
+        d = dbm.db()
+        open_ids = [t["_id"] for t in d[dbm.TASKS].find({"status": {"$in": OPEN}}, {"_id": 1})]
+        steps: dict[str, list[str]] = {}
+        for a in d[dbm.ACTIONS].find({"task_id": {"$in": open_ids}, "state": {"$ne": "verified"}},
+                                     {"task_id": 1, "step": 1}):
+            steps.setdefault(a["task_id"], []).append(a.get("step"))
+        for task_id, s in steps.items():
+            d[dbm.TIMELINE].insert_one({
+                "task_id": task_id, "at": datetime.now(timezone.utc), "kind": "resume_after_crash", "duration_ms": None,
+                "detail": {"system": "agent", "steps": s, "message": "Agent restarted: reading back before acting"}})
+    except Exception as e:  # noqa: BLE001 - never stop the agent from starting
+        print(f"resume log error {e!r}", flush=True)
+
+
 def main(poll_seconds: float = 1.0, concurrency: int = CONCURRENCY) -> None:
     dbm.ensure_indexes()
+    _log_resume()
     graph = build()  # one compiled graph and one MongoDBSaver, shared: both are stateless per call
     print(f"agent started ({concurrency} at a time)", flush=True)
     in_flight: dict[str, Future] = {}  # touched only by this loop's thread

@@ -6,7 +6,7 @@ state; the ledger (ledger.py) proves what took effect in the outside world.
 This first version walks the steps in a fixed order. Build order item 6 swaps
 in the model for the hard parts: unknown outcomes, changed systems, triage.
 """
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, TypedDict
 
 from bson import BSON
@@ -94,6 +94,21 @@ def _explain(q: dict[str, Any], old: dict[str, Any] | None) -> dict[str, Any]:
             "explanation_meta": {k: w.get(k) for k in ("model", "ms", "at", "fallback_reason", "rejected_text")}}
 
 
+CLAIM_SECONDS = 90  # a claim older than this was left by a killed agent: take it over
+
+
+def claim_investigation(task_id: str) -> bool:
+    """Atomically claim the right to investigate this horse. Stale claims (a crash) expire."""
+    now = datetime.now(timezone.utc)
+    stale = now - timedelta(seconds=CLAIM_SECONDS)
+    doc = dbm.db()[dbm.TASKS].find_one_and_update(
+        {"_id": task_id, "investigation": None,
+         "$or": [{"investigating_since": {"$exists": False}}, {"investigating_since": None},
+                 {"investigating_since": {"$lt": stale}}]},
+        {"$set": {"investigating_since": now}})
+    return doc is not None
+
+
 def price(state: State) -> State:
     """Build the risk profile's findings and price the horse from the insurer's rules."""
     task = _task(state)
@@ -106,8 +121,12 @@ def price(state: State) -> State:
         return {"status": "not_eligible"}
     profile = d[dbm.HORSE_PROFILES].find_one({"horse_id": task["horse_id"]}) or {}
     if not task.get("investigation"):  # once per horse: a resume or a re-run reuses it
+        if not claim_investigation(task["_id"]):
+            # Another thread or process is investigating this horse right now: don't do it twice.
+            return {"status": task.get("status") or "new"}
         found = investigator.investigate(task, profile)
         _set(task["_id"], investigation=found)
+        dbm.db()[dbm.TASKS].update_one({"_id": task["_id"]}, {"$unset": {"investigating_since": ""}})
         investigator.log_trail(task["_id"], found)
     rule_doc = d[dbm.INSURER_RULES].find_one(sort=[("version", -1)]) or rules.DEFAULT_RULES
     q = rules.quote(task["race"], task.get("runner", {}), task["ownership_share"], profile,
