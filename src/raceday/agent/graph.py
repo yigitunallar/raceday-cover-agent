@@ -15,7 +15,7 @@ from langgraph.graph import END, START, StateGraph
 from .. import config, rules
 from .. import db as dbm
 from ..ledger import Outcome, guarded_write
-from . import decider, investigator, writer
+from . import cancel, decider, investigator, writer
 from .tools import look_up, send
 
 
@@ -30,7 +30,12 @@ def _task(state: State) -> dict[str, Any]:
 
 def _set(task_id: str, **fields) -> None:
     fields["updated_at"] = datetime.now(timezone.utc)
+    status = fields.pop("status", None)
     dbm.db()[dbm.TASKS].update_one({"_id": task_id}, {"$set": fields})
+    if status is not None:
+        # Once the owner has cancelled, only the cancellation decides the status.
+        dbm.db()[dbm.TASKS].update_one({"_id": task_id, "cancellation.decision": {"$ne": cancel.REFUND}},
+                                       {"$set": {"status": status}})
 
 
 def _left_stable(task: dict[str, Any]) -> bool:
@@ -136,10 +141,19 @@ def confirm(state: State) -> State:
     return {"status": "confirmed"}
 
 
+def _cancelled(task_id: str) -> State:
+    """The owner cancelled: stop here, and finish the cancellation (refund what was proven)."""
+    return {"status": cancel.settle(task_id)["status"]}
+
+
 def _write(state: State, step: str, system: str, intended: dict[str, Any], next_status: str) -> State:
     task = _task(state)
+    if cancel.wants_cancel(task):
+        return _cancelled(task["_id"])
 
     def guard() -> str | None:
+        if cancel.wants_cancel(_task(state)):
+            return "cancelled by the owner"
         if _left_stable(task):
             return "the horse has left the stable"
         if not (task.get("confirmation") or {}).get("fit"):
@@ -190,6 +204,9 @@ def _write(state: State, step: str, system: str, intended: dict[str, Any], next_
                                         f"({choice['reason']})")
         else:  # escalate
             return _refer(_task(state), f"agent escalated: {step} at {system} could not be proven ({choice['reason']})")
+    if cancel.wants_cancel(_task(state)):
+        # Cancelled while this write was in flight: a charge or policy that just landed is undone.
+        return _cancelled(task["_id"])
     if record["state"] != Outcome.VERIFIED:
         _set(task["_id"], status="blocked", blocked_at=step, blocked_reason=str(record.get("reason") or record.get("state")))
         return {"status": "blocked"}

@@ -94,9 +94,10 @@ def scoreboard():
     for row in dbm.db()[dbm.TASKS].aggregate([{"$group": {"_id": "$status", "n": {"$sum": 1}}}]):
         counts[row["_id"]] = row["n"]
     declared = sum(counts.values())
-    accounted = sum(counts.get(s, 0) for s in ("covered", "referred", "not_confirmed", "not_eligible"))
+    accounted = sum(counts.get(s, 0) for s in ("covered", "referred", "not_confirmed", "not_eligible", "cancelled"))
     return {"declared": declared, "covered": counts.get("covered", 0), "referred": counts.get("referred", 0),
             "not_confirmed": counts.get("not_confirmed", 0), "not_eligible": counts.get("not_eligible", 0),
+            "cancelled": counts.get("cancelled", 0),
             "in_progress": declared - accounted, "by_status": counts, "systems": mock_summary(),
             "agent_running": _running()}
 
@@ -305,3 +306,13 @@ def control_confirm_all_but_one(keep: str = DEMO_KEEP_DEFAULT):
             skipped.append({"task_id": t["_id"], "horse": t.get("horse"), "why": "past deadline or already answered"})
     return {"ok": True, "kept": keep, "confirmed": confirmed, "skipped": skipped, "agent_running": _running()}
 
+
+@app.post("/tasks/{task_id}/cancel")
+def cancel_task(task_id: str):
+    """The owner cancels. Before the horse leaves the stable: refund the premium and cancel the policy,
+    each proven by read-back. After it has left: cover has started, no refund. Safe to repeat."""
+    from ..agent import cancel as cancel_module
+    out = cancel_module.request(task_id)
+    if out is None:
+        raise HTTPException(404, "unknown task")
+    return _clean(out)

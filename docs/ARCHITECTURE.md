@@ -140,7 +140,18 @@ A read-back that is not `{operation_id, reference, payload}` triggers recovery (
 3. Code validates every mapping: targets must be canonical fields, sources must exist in the response, the mapped `operation_id` must equal the one asked for, `payload` must be an object. The ledger's own intended-versus-held comparison still decides "verified".
 4. Saves a new `system_profiles` version, writes a `cases` document (model path only), retries only that read. Every step goes to `timeline`, served by `GET /timeline?task_id=`.
 7. Lost report to the insurer. **Done in the ledger; needs a demo beat**
-8. Cancellation and refund.
+8. Cancellation and refund. **Done** (see "Cancellation")
+
+## Cancellation
+
+`POST /tasks/{task_id}/cancel` (code: `agent/cancel.py`). The rule: cancelled **before** the horse leaves the stable → premium refunded and policy cancelled; **after** → no refund, cover has started, status stays `covered`.
+
+1. **Decide once, record first.** The first request saves `cancellation: {decision, reason, requested_at}` on the task (atomic: only one request can write it). A refund decision also sets status `cancelling`, which is not an open status, so the worker stops picking the task up. A repeat request reuses the saved decision, even if it arrives after the deadline.
+2. **Stop the graph.** `graph._write` checks for a cancellation before a write, inside the guard (blocked: "cancelled by the owner"), and again after a write that was in flight; `_set` no longer changes the status of a cancelled task. A charge or policy that lands after the cancel is undone by the same code.
+3. **Undo what was proven, through the ledger.** A charge or policy intent that was never verified is read back first (nothing sent). A verified charge is refunded with step `refund` at `refunds` (the same operation ID as the refund-and-escalate path, so one refund per task at most); a verified policy is cancelled with step `cancel_policy` at `cancellations` (a separate system, so `platform` keeps one record per task).
+4. **Finish.** Everything proven → `cancelled` (counted on the scoreboard). Anything not proven → stays `cancelling`; calling cancel again finishes it by read-back, including after a crash between intent and read-back.
+
+Timeline kinds: `cancel_requested`, `refund_verified`, `policy_cancelled`, `cancelled`, `cancel_refused_after_departure`.
 
 ## Where this goes next (pitch only)
 
