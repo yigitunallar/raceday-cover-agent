@@ -15,7 +15,7 @@ from pymongo.errors import DuplicateKeyError
 
 from .. import db as dbm
 
-SYSTEMS = {"payments", "platform", "insurer", "notify"}
+SYSTEMS = {"payments", "platform", "insurer", "notify", "refunds"}
 MODES = {"none", "drop_response", "reject", "rename_field"}
 AFTER_WRITE: list = []  # callables taking the system name, run after a write takes effect
 

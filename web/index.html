@@ -199,7 +199,7 @@
     <div class="chaos">
       <span>Break the next request to</span>
       <select id="chaosSystem" aria-label="Outside system"><option value="payments">payments</option><option value="platform">platform</option><option value="insurer">insurer</option><option value="notify">notify</option></select>
-      <select id="chaosMode" aria-label="What goes wrong"><option value="drop_response">Lose the response</option><option value="reject">Reject</option><option value="rename_field">Rename fields</option></select>
+      <select id="chaosMode" aria-label="What goes wrong"><option value="drop_response">Lose the response</option><option value="reject">Reject</option><option value="rename_field">Rename fields</option><option value="down">Go down (keeps failing)</option></select>
       <button id="chaos">Break it</button>
       <span id="flash" aria-live="polite"></span>
     </div>
@@ -356,7 +356,9 @@ function normaliseTimeline(data) {
   return list.map(e => {
     const at = e.at || e.ts || e.time || e.created_at || e.updated_at;
     const who = e.horse || (tasks.find(t => t._id === e.task_id) || {}).horse;
-    const what = e.message || e.text || e.summary || e.detail || [label(e.event || e.kind || e.type), e.step && label(e.step), e.state && label(e.state)].filter(Boolean).join(": ");
+    const d = e.detail && typeof e.detail === "object" ? e.detail : null;
+    const decided = e.kind === "agent_decision" && d ? `Model decided: ${label(d.move)} (${d.step} at ${d.system}) · ${d.reason || ""}${d.source === "template" ? " [fallback]" : ""}` : null;
+    const what = decided || e.message || e.text || e.summary || (d ? [label(e.kind), d.system, d.move || d.state || (d.mapping ? "fields mapped" : "")].filter(Boolean).join(": ") : e.detail) || [label(e.event || e.kind || e.type), e.step && label(e.step), e.state && label(e.state)].filter(Boolean).join(": ");
     const k = String(e.kind || e.event || e.type || e.state || "").toLowerCase();
     const cls = /kill|crash|lost|reject|mismatch|fail|error/.test(k) ? "bad" : /recover|resum|verified|found/.test(k) ? "good" : /retry|resend|re-send|refer/.test(k) ? "warn" : "";
     return { at, text: (who ? who + ": " : "") + what, cls };
@@ -455,7 +457,8 @@ act("chaos", async () => {
   const system = $("chaosSystem").value, mode = $("chaosMode").value;
   // A renamed field matters where the agent reads back; the reply to a write is never trusted anyway.
   const target = mode === "rename_field" ? `${system}:read` : system;
-  const r = await call("/mocks/chaos", "POST", { system: target, mode, count: 1 });
+  // "Go down" = reject every request for a while: the ledger cannot prove the step and the model must decide.
+  const r = await call("/mocks/chaos", "POST", mode === "down" ? { system: target, mode: "reject", count: 8 } : { system: target, mode, count: 1 });
   const what = $("chaosMode").selectedOptions[0].textContent.toLowerCase();
   note(r.ok ? `Chaos armed: next ${system} request will ${what}` : "Chaos failed", "warn");
   flash(r.ok ? `Armed: next ${system} request will ${what}.` : "Could not arm chaos.");

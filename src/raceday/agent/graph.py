@@ -15,7 +15,7 @@ from langgraph.graph import END, START, StateGraph
 from .. import config, rules
 from .. import db as dbm
 from ..ledger import Outcome, guarded_write
-from . import writer
+from . import decider, writer
 from .tools import look_up, send
 
 
@@ -144,12 +144,50 @@ def _write(state: State, step: str, system: str, intended: dict[str, Any], next_
             return "outside the insurer's limit"
         return None
 
-    record = guarded_write(task_id=task["_id"], step=step, system=system, intended=intended,
-                           guard=guard, call=send(system), read_back=look_up(system))
+    def attempt(max_attempts: int = 3) -> dict[str, Any]:
+        return guarded_write(task_id=task["_id"], step=step, system=system, intended=intended,
+                             guard=guard, call=send(system), read_back=look_up(system), max_attempts=max_attempts)
+
+    record = attempt()
+    decisions = 0
+    while record["state"] != Outcome.VERIFIED and record["state"] != Outcome.BLOCKED:
+        # Outcome not proven. The model decides the next move; code decides if it's allowed.
+        fresh = _task(state)
+        charge_rec = dbm.db()[dbm.ACTIONS].find_one({"operation_id": f"{task['_id']}:charge"}) or {}
+        facts = {
+            "horse": task.get("horse"), "step": step, "system": system,
+            "ledger_state": str(record.get("state")), "attempts_so_far": record.get("attempts"),
+            "evidence": str(record.get("evidence"))[:300],
+            "charge_verified": charge_rec.get("state") == Outcome.VERIFIED and step != "charge",
+            "horse_has_left": _left_stable(fresh),
+            "minutes_until_horse_leaves": int(((fresh["deadline"] if fresh["deadline"].tzinfo else
+                                                fresh["deadline"].replace(tzinfo=timezone.utc))
+                                               - datetime.now(timezone.utc)).total_seconds() // 60),
+            "decisions_so_far": decisions,
+        }
+        facts["allowed_moves"] = decider.allowed_moves(facts)
+        choice = decider.decide(facts)
+        decisions += 1
+        decider.log(task["_id"], "agent_decision", {"system": system, "step": step, "move": choice["move"],
+                                                   "reason": choice["reason"], "source": choice["source"],
+                                                   "allowed": facts["allowed_moves"],
+                                                   "ledger_state": facts["ledger_state"]}, choice["ms"])
+        if choice["move"] == "read_back_again":
+            record = attempt(max_attempts=0)
+        elif choice["move"] == "resend_same_id":
+            record = attempt(max_attempts=1)
+        elif choice["move"] == "refund_and_escalate":
+            refund = guarded_write(task_id=task["_id"], step="refund", system="refunds",
+                                   intended={"task_id": task["_id"], "refund_of": f"{task['_id']}:charge",
+                                             "amount": task["quote"]["total"], "currency": task["quote"]["currency"]},
+                                   guard=lambda: None, call=send("refunds"), read_back=look_up("refunds"))
+            decider.log(task["_id"], "refund", {"system": "refunds", "state": str(refund["state"])})
+            return _refer(_task(state), f"agent refunded and escalated: {step} at {system} could not be proven "
+                                        f"({choice['reason']})")
+        else:  # escalate
+            return _refer(_task(state), f"agent escalated: {step} at {system} could not be proven ({choice['reason']})")
     if record["state"] != Outcome.VERIFIED:
-        # TODO(agent): unknown outcome. The model chooses what evidence to gather next
-        # and picks continue, re-send or refund.
-        _set(task["_id"], status="blocked", blocked_at=step, blocked_reason=str(record.get("state")))
+        _set(task["_id"], status="blocked", blocked_at=step, blocked_reason=str(record.get("reason") or record.get("state")))
         return {"status": "blocked"}
     _set(task["_id"], status=next_status)
     return {"status": next_status}
