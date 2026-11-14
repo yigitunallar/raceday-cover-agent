@@ -31,10 +31,10 @@ def _tools_impl(task: dict[str, Any], profile: dict[str, Any]) -> dict[str, Call
                       "position": r.get("position")} for r in sorted(profile.get("runs", []), key=lambda r: r["date"],
                                                                          reverse=True)],
             "official_rating": profile.get("official_rating") or "none"},
-        "get_health_records": lambda: [
+        "get_health_records": lambda: {"owner_provided_history": task.get("owner_medical_history"), "records": [
             {"days_ago": _days_ago(h["date"], now), "kind": h.get("kind"), "result": h.get("result"),
              **({"pre_existing_condition": h["condition"]} if h.get("pre_existing") else {})}
-            for h in profile.get("health_records", [])],
+            for h in profile.get("health_records", [])]},
         "get_past_declarations": lambda: [
             {"days_ago": _days_ago(d["date"], now), "fit_to_run": d.get("fit", True), "note": d.get("note")}
             for d in profile.get("declarations", [])],
@@ -75,6 +75,8 @@ SYSTEM = (
 def required_checks(task: dict[str, Any]) -> set[str]:
     """What the insurer's rules need to have been looked at. Enforced by code, not trusted to the model."""
     need = {"get_race_history", "get_past_declarations"}  # always: recent form and the owner's history
+    if task.get("owner_medical_history"):
+        need.add("get_health_records")
     if task.get("stated_value") is not None:
         need.add("get_sales_and_earnings")  # an owner's own figure must be checked against evidence
     return need

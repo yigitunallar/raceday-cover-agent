@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>Raceday — Horse mission</title>
+  <link rel="stylesheet" href="mission.css">
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <a href="mission.html" class="brand" aria-label="Raceday home"><span class="brand-mark">R<span>•</span></span><span>raceday<span class="brand-period">.</span><small>HORSE COVER, REIMAGINED</small></span></a>
+      <div class="top-right"><span class="environment"><span class="signal"></span> LIVE RENDER DATA</span><span class="top-divider"></span><a class="top-note" href="admin.html">ADMIN DASHBOARD ↗</a></div>
+    </header>
+
+    <main>
+      <div class="intro"><div><div class="eyebrow"><span class="tiny-diamond">◆</span> YOUR RACE-DAY COMPANION</div><h1>Every detail,<br><em>before the gate.</em></h1><p>One horse. One clear view. Follow your agent as it works through the details.</p></div><div class="intro-aside"><span class="aside-number">01 / 01</span><span>THE HORSE<br>COMES FIRST <span class="arrow">↗</span></span></div></div>
+
+      <section class="mission-bar" id="missionBar" hidden aria-label="Select horse and control agent">
+        <div class="selector-wrap"><label>YOUR HORSE</label><strong id="selectedHorse">Loading latest saved task…</strong></div>
+        <div class="worker-controls"><div class="worker-status"><span class="worker-dot" id="workerDot"></span><span><small>SHARED WORKER</small><strong id="workerState">Connecting</strong></span></div><button id="startAgent" class="button start">Start agent <span>↗</span></button><button id="killAgent" class="button kill">Kill agent <span>×</span></button></div>
+      </section>
+      <div class="global-note" id="notice" hidden role="status">Start and kill control the shared Render worker for all horses.</div>
+
+      <div class="workspace">
+        <section class="main-column">
+          <section class="intake-card" id="intake"><div class="eyebrow muted">START A REQUEST</div><h2>Tell us about your horse<span class="title-dot">.</span></h2><p>Share the medical information you have. Race and pricing information should be gathered by the agent.</p><form id="intakeForm"><div class="intake-grid"><label>Horse name<input name="horse_name" required placeholder="Horse name"></label><label>Horse identifier <span>(if known)</span><input name="horse_id" placeholder="Registration or existing ID"></label></div><label>Medical history and records<textarea name="medical_history" rows="5" required placeholder="Conditions, treatments, surgery, medications, vet findings, or other relevant information"></textarea></label><p class="intake-help">Demo environment: use synthetic information only. Matching uses existing demo horses; pricing is simulated and does not interpret medical notes. Starting the agent also processes other open tasks.</p><button type="submit" id="intakeSubmit" class="button start" disabled>Submit for a quote ↗</button><p id="intakeStatus" class="intake-help" role="status">Checking whether Render accepts new requests…</p></form></section>
+          <div id="missionContent" hidden><div class="horse-header"><div><div class="eyebrow muted">THE MISSION <span class="eyebrow-line"></span> <span id="taskShort">—</span></div><h2 id="horseName">Choose a horse<span class="title-dot">.</span></h2><p id="raceName">Connecting to race-day records</p></div><span id="taskState" class="status-chip">WAITING</span></div>
+
+          <div class="fact-strip"><div><span>RACE TYPE</span><strong id="raceType">—</strong></div><div><span>RATING</span><strong id="rating">—</strong></div><div><span>OWNER SHARE</span><strong id="share">—</strong></div><div><span>LEAVES YARD</span><strong id="deadline">—</strong></div></div>
+
+          <div class="section-title"><div><div class="eyebrow muted">THE PLAY-BY-PLAY</div><h3>Inside the agent <span class="live-pill"><span></span> LIVE ACTIVITY</span></h3></div><span class="section-sub">Updates from the task timeline</span></div>
+          <div class="activity-panel"><div class="activity-head"><div><span class="terminal-dot"></span><b>MISSION LOG</b><span id="taskIdLabel">Select a horse</span></div><span id="eventCount">0 EVENTS</span></div><div id="activity" class="activity" aria-live="polite"><div class="empty">Choose a horse to see its activity.</div></div><div class="activity-foot"><span><span class="signal green"></span> ATLAS TIMELINE</span><span>Updates as the backend saves events</span></div></div>
+          <p class="honesty">The current backend saves investigation events after the investigation finishes. This feed polls saved events; it is not token-by-token streaming.</p></div>
+        </section>
+
+        <aside class="side-column" id="sideColumn" hidden>
+          <section class="run-card" aria-label="Selected task status"><div class="progress-ring" id="progressRing" aria-hidden="true"><span>✳</span></div><div class="run-copy"><span class="eyebrow muted">AGENT PROGRESS</span><h3 id="runHeadline">Waiting for a task</h3><p id="runDescription">Select a horse to see its saved status.</p><div class="decision-note" id="decisionNote"><span id="decisionLabel">LATEST SAVED DECISION</span><p id="decisionText">No decision recorded yet.</p></div></div></section>
+          <section class="quote-card"><div class="card-top"><span>YOUR QUOTE</span><span class="card-orbit">✳</span></div><div class="quote-kicker" id="quoteLabel">WAITING FOR ASSESSMENT</div><div class="quote-amount" id="quoteAmount">—</div><p id="coverageNote" class="coverage-note" hidden></p><p id="quoteText">The quote appears here when the agent finishes pricing this horse.</p><div class="quote-breakdown"><div><span>Sum insured</span><strong id="sumInsured">—</strong></div><div><span>Premium</span><strong id="premium">—</strong></div><div><span>Tax</span><strong id="tax">—</strong></div></div><button id="requestQuote" class="button quote-button" disabled>Request a quote <span>↗</span></button><p class="card-note" id="quoteCapability">Checking whether the live backend accepts new quote requests…</p></section>
+
+          <section class="evidence-card"><div class="side-header"><div><span class="eyebrow muted">THE DETAILS</span><h3>Evidence &amp; actions</h3></div><span class="side-icon">✳</span></div><div id="evidence"><div class="empty-light">Select a horse to see verified action records.</div></div></section>
+
+          <section class="evidence-card"><div class="side-header"><div><span class="eyebrow muted">HORSE RECORDS</span><h3>Medical records</h3></div><span class="side-icon">✳</span></div><div id="medicalRecords"><div class="empty-light">Checking the live backend for records.</div></div></section>
+
+          <section class="info-card"><div class="side-header"><div><span class="eyebrow muted">OWNER INPUT</span><h3>Add information</h3></div><span class="side-icon">↗</span></div><p id="inputText">When a task is waiting for a fit-to-run declaration, the owner can record it here.</p><div id="declarationControls" class="declaration" hidden><button id="answerYes" class="button answer">Fit to run</button><button id="answerNo" class="button answer neutral">Not fit</button></div><div class="notice-line">New medical details are entered in the request form. Existing declarations can be recorded above.</div></section>
+        </aside>
+      </div>
+      <footer><span>RACEDAY <span class="brand-period">✳</span> BUILT FOR THE MOMENTS BEFORE THE GATE</span><span>FICTIONAL HORSES &amp; MOCK SYSTEMS</span></footer>
+    </main>
+  </div>
+  <script src="mission.js" defer></script>
+</body>
+</html>

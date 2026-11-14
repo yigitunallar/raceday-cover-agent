@@ -9,6 +9,7 @@ in the model for the hard parts: unknown outcomes, changed systems, triage.
 from datetime import datetime, timezone
 from typing import Any, TypedDict
 
+from bson import BSON
 from langgraph.checkpoint.mongodb import MongoDBSaver
 from langgraph.graph import END, START, StateGraph
 
@@ -119,6 +120,13 @@ def price(state: State) -> State:
         return {"status": "not_eligible"}
     if q["over_limit"]:
         return _refer({**task, "quote": q}, "value above the insurer's limit")
+    if task.get("quote_only"):
+        saved = d[dbm.TASKS].find_one({"_id": task["_id"]})
+        if not saved or BSON.encode({"quote": saved.get("quote")}) != BSON.encode({"quote": q}):
+            _set(task["_id"], status="quote_unverified", reason="saved quote could not be verified")
+            return {"status": "quote_unverified"}
+        _set(task["_id"], status="quoted")
+        return {"status": "quoted"}
     return {"status": "priced"}
 
 

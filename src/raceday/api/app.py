@@ -14,6 +14,8 @@ from typing import Any
 
 from fastapi import FastAPI, Header, HTTPException, Response
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import RedirectResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from .. import config
@@ -23,10 +25,18 @@ from ..agent import voice
 from ..mocks.app import app as mocks_app
 from ..mocks.app import AFTER_WRITE as mocks_after_write
 from ..mocks.app import summary as mock_summary
+from .intake import router as intake_router
 
 app = FastAPI(title="Raceday Cover Agent")
+app.include_router(intake_router)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 app.mount("/mocks", mocks_app)
+app.mount("/ui", StaticFiles(directory=Path(__file__).resolve().parents[3] / "web"), name="ui")
+
+
+@app.get("/", include_in_schema=False)
+def ui_home():
+    return RedirectResponse("/ui/mission.html")
 
 SRC = str(Path(__file__).resolve().parents[2])
 _agent: subprocess.Popen | None = None
