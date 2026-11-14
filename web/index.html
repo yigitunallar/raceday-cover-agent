@@ -186,6 +186,8 @@
   <h2>Controls</h2>
   <section class="card controls">
     <div class="steps">
+      <button id="demoStart" class="primary">⚡ Demo start (ready in ~30 s)</button>
+      <button id="confirmButOne">Confirm all but Copper Lantern</button>
       <button id="seed"><span class="n">1</span>Load race meeting</button>
       <button id="confirmAll"><span class="n">2</span>Owners confirm fit to run</button>
       <button id="start" class="primary"><span class="n">3</span>Start agent</button>
@@ -334,7 +336,8 @@ function renderRows() {
   const html = tasks.map(t => {
     const q = t.quote || {}, isOpen = open.has(t._id), exp = explanation(t);
     const why = exp ? `<span class="why model">${esc(exp)}</span>` : `<span class="why">${esc(reasonList(t).join(" · "))}</span>`;
-    const ask = t.status === "awaiting_owner" && !t.confirmation ? `<button data-call="${esc(t._id)}">📞 Call owner (simulated)</button> <button data-phone="${esc(t._id)}">☎️ Ring real phone</button> <button data-fit="${esc(t._id)}">Yes, fit</button> <button data-unfit="${esc(t._id)}">No</button>` : "";
+    const cancelBtn = !["cancelled", "cancelling", "not_eligible", "not_confirmed", "referred"].includes(t.status) ? ` <button data-cancel="${esc(t._id)}">Cancel</button>` : "";
+    const ask = (t.status === "awaiting_owner" && !t.confirmation ? `<button data-call="${esc(t._id)}">📞 Call owner (simulated)</button> <button data-phone="${esc(t._id)}">☎️ Ring real phone</button> <button data-fit="${esc(t._id)}">Yes, fit</button> <button data-unfit="${esc(t._id)}">No</button>` : "") + cancelBtn;
     const row = `<tr class="task${isOpen ? " open" : ""}" data-id="${esc(t._id)}" tabindex="0" aria-expanded="${isOpen}">
       <td><span class="caret">&#9656;</span><b>${esc(t.horse)}</b><span class="hid">${esc(t.horse_id)}</span></td>
       <td>${esc((t.race || {}).race_name)}<span class="hid" style="padding:0">${esc((t.race || {}).type)} · off ${clock((t.race || {}).off_dt)}</span></td>
@@ -469,6 +472,17 @@ act("chaos", async () => {
   note(r.ok ? `Chaos armed: next ${system} request will ${what}` : "Chaos failed", "warn");
   flash(r.ok ? `Armed: next ${system} request will ${what}.` : "Could not arm chaos.");
 });
+act("demoStart", async () => {
+  note("Demo start: resetting, loading and pricing every horse (about 30 s)…", "warn");
+  const r = await call("/control/demo-start", "POST");
+  if (r.ok && r.data) { open.clear(); actionsCache = {}; referrals = {}; lastStatus = {}; killedAt = null;
+    note(`Ready in ${Math.round(r.data.seconds || 0)} s: ${(r.data.awaiting_owner || []).length} horses waiting for the owner`, "good"); }
+  else note("Demo start failed", "bad");
+});
+act("confirmButOne", async () => {
+  const r = await call("/control/confirm-all-but-one?keep=" + encodeURIComponent("Copper Lantern"), "POST");
+  note(r.ok ? `Owners confirmed ${(r.data.confirmed || []).length} horses; Copper Lantern kept for the phone call` : "Confirm failed", r.ok ? "good" : "bad");
+});
 act("confirmAll", async () => {
   const todo = tasks.filter(t => !t.confirmation && !DONE.has(t.status));
   const res = await Promise.all(todo.map(t => call(`/tasks/${encodeURIComponent(t._id)}/confirm`, "POST", { fit: true })));
@@ -503,6 +517,15 @@ $("rows").addEventListener("click", async e => {
     if (r.ok) { note(`${who}: agent is phoning the owner; the spoken answer will update this row`, "warn"); phoneBtn.textContent = "☎️ On the call…"; }
     else { phoneBtn.textContent = "Call failed"; phoneBtn.disabled = false; note("Phone call failed: " + ((r.data && r.data.detail) || "unknown"), "bad"); }
     return;
+  }
+  const cancelB = e.target.closest("[data-cancel]");
+  if (cancelB) {
+    e.stopPropagation(); cancelB.disabled = true;
+    const r = await call(`/tasks/${encodeURIComponent(cancelB.dataset.cancel)}/cancel`, "POST");
+    const who = (tasks.find(t => t._id === cancelB.dataset.cancel) || {}).horse || "";
+    const o = (r.data || {}).outcome;
+    note(o === "cancelled" ? `${who}: cancelled${r.data.refunded ? ", premium refunded" : ""}${r.data.policy_cancelled ? ", policy cancelled" : ""} (proven)` : o === "refused" ? `${who}: cancel refused, the horse has left the stable: no refund` : `${who}: cancellation ${o || "failed"}`, o === "refused" ? "warn" : o === "cancelled" ? "good" : "bad");
+    refresh(); return;
   }
   const unfit = e.target.closest("[data-unfit]");
   if (unfit) { e.stopPropagation(); unfit.disabled = true; await call(`/tasks/${encodeURIComponent(unfit.dataset.unfit)}/confirm`, "POST", { fit: false, given_by: "owner (voice call)" }); refresh(); return; }
