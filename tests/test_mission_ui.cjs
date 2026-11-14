@@ -1,0 +1,15 @@
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const vm = require('node:vm');
+const src = fs.readFileSync('web/mission.js','utf8');
+const segment = src.slice(src.indexOf('const STEPS ='), src.indexOf('function renderStepper'));
+const context = {money: value => String(value), title: value => String(value)};
+vm.createContext(context);
+vm.runInContext(segment + '\nglobalThis.testStepper = stepperState;', context);
+const notFit = context.testStepper({status:'awaiting_owner', confirmation:{fit:false}, quote:{offerable:true}}, [], []);
+assert.equal(notFit.owner.s, 'issue');
+assert.equal(notFit.charge.s, 'skipped');
+const fit = context.testStepper({status:'awaiting_owner', confirmation:{fit:true}, quote:{offerable:true}}, [], []);
+assert.equal(fit.owner.s, 'done');
+assert.equal(fit.charge.s, 'pending');
+console.log('Mission stepper: not-fit and fit states verified');

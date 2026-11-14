@@ -33,3 +33,4 @@
 .console-link{font-weight:600;text-decoration:underline}
 .quote-factors{margin:6px 0 10px;padding-left:18px;font-size:.85em;opacity:.85}
 #taskIdLabel,#taskShort{font-size:.75em;opacity:.6}
+.status-chip.issue{background:#fbedeb;border-color:#e9c6c0;color:#9d3d35}.progress-ring.issue:before{background:#b54d45}.progress-ring.issue span{color:#b54d45}.quote-card.issue{background:#f9e8e5;border-color:#edc6c0;color:#78342e}.quote-card.issue .card-orbit,.quote-card.issue .quote-kicker,.quote-card.issue p,.quote-card.issue .coverage-note{color:#96544b}.quote-card.issue .quote-breakdown{border-color:#dda9a1}.quote-card.issue .quote-breakdown div,.quote-card.issue .quote-breakdown strong{color:#783e37}.quote-card.issue .quote-button{background:#853f39}.stepper li.issue b,.stepper li.issue small{color:#9d3d35}

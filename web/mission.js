@@ -49,19 +49,24 @@ function renderTask(task) {
     setText("runHeadline", "Waiting for a task"); setText("runDescription", "Select a horse to see its saved status."); $("progressRing").className = "progress-ring"; return;
   }
   const race=task.race || {}, quote=task.quote || {}, status=task.status || "unknown";
+  const declaration = task.owner_declaration || task.confirmation;
+  const notFit = declaration?.fit === false;
+  const issue = notFit || ["blocked","referred","not_eligible","not_confirmed","quote_unverified"].includes(status);
+  document.querySelector(".quote-card").classList.toggle("issue", issue);
   setText("horseName", task.horse || "Unnamed horse");
   setText("raceName", [race.race_name, race.race_status ? title(race.race_status) : ""].filter(Boolean).join("  ·  "));
   setText("taskShort", task.horse_id || "UNKNOWN HORSE"); setText("taskIdLabel", task._id);
-  setText("taskState", title(status).toUpperCase());
+  setText("taskState", notFit && status === "awaiting_owner" ? "NOT FIT · PROCESSING" : title(status).toUpperCase());
   const done = ["covered","quoted","not_eligible","not_confirmed","referred","blocked","quote_unverified","cancelled"].includes(status);
-  setText("runHeadline", `Task: ${title(status)}`);
+  setText("runHeadline", notFit && status === "awaiting_owner" ? "Owner reported not fit" : `Task: ${title(status)}`);
   setText("runDescription", done ? "Latest status saved by the backend." : workerRunning ? "Agent running · waiting for updates." : "Agent stopped · saved state retained.");
-  $("progressRing").className = "progress-ring" + (["covered","quoted"].includes(status) ? " complete" : done ? " stopped" : workerRunning ? " active" : "");
-  $("taskState").className = "status-chip" + (["blocked","referred","not_eligible","not_confirmed","quote_unverified"].includes(status) ? " issue" : "");
+  $("progressRing").className = "progress-ring" + (issue ? " issue" : ["covered","quoted"].includes(status) ? " complete" : done ? " stopped" : workerRunning ? " active" : "");
+  $("taskState").className = "status-chip" + (issue ? " issue" : "");
   setText("raceType", race.type || "—"); setText("rating", task.runner?.ofr || "—");
   setText("share", task.ownership_share == null ? "—" : `${Math.round(Number(task.ownership_share)*100)}%`);
   setText("deadline", clock(task.deadline));
-  const finalLabel = status === "referred" ? "Referred to an underwriter · no charge"
+  const finalLabel = notFit && status === "awaiting_owner" ? "OWNER REPORTED NOT FIT · AWAITING PROCESSING"
+    : status === "referred" ? "Referred to an underwriter · no charge"
     : status === "not_confirmed" ? "No answer before the horse left · no charge"
     : status === "not_eligible" ? `Not eligible: ${plainReason(task.reason || quote.reason || "does not meet the insurer's rules")}`
     : ["cancelled","cancelling"].includes(status) ? "Cancelled · refund proven" : null;
@@ -85,7 +90,6 @@ function renderTask(task) {
   $("addOnsRow").hidden = !addOns.length;
   setText("addOns", addOns.map(([k, v]) => `${title(k)} ${money(v, quote.currency)}`).join(", ") || "—");
   setText("sumInsured", money(quote.sum_insured,quote.currency)); setText("premium", money(quote.premium,quote.currency)); setText("tax", money(quote.tax,quote.currency));
-  const declaration = task.owner_declaration || task.confirmation;
   $("declarationControls").hidden = !(status === "awaiting_owner" && !declaration && !task.quote_only);
   setText("inputText", declaration ? `Owner declared: ${declaration.fit ? "fit to run" : "not fit to run"}.` : status === "awaiting_owner" ? "The owner’s fit-to-run declaration is required for this task." : "When a task is waiting for a fit-to-run declaration, the owner can record it here.");
   const canRequestNew = quoteRoute && String(task._id).startsWith("task_") && !task.quote_only;
@@ -121,7 +125,7 @@ function stepperState(task, actions, events) {
   if (st === "referred" && q.over_limit) out.owner = {s:"skipped", note:"Not asked: the case went to an underwriter"};
   else if (st === "referred") out.owner = {s:"issue", note: task.referral_reason || "Referred to an underwriter"};
   else if (st === "not_confirmed") out.owner = {s:"issue", note:"No answer before the horse left: no charge"};
-  else if (task?.owner_declaration || task?.confirmation) { const declaration = task.owner_declaration || task.confirmation; out.owner = {s:"done", note:`${declaration.fit ? "Fit to run" : "Not fit"} · ${declaration.given_by || "owner"}`}; }
+  else if (task?.owner_declaration || task?.confirmation) { const declaration = task.owner_declaration || task.confirmation; out.owner = {s:declaration.fit === false ? "issue" : "done", note:`${declaration.fit ? "Fit to run" : "Not fit"} · ${declaration.given_by || "owner"}`}; }
   else if (st === "awaiting_owner") out.owner = {s:"active", note: phoned ? "Agent is on the phone with the owner…" : outreach ? `Agent chose: ${({call_now:"call now", app_reminder:"in-app reminder", wait:"wait"})[outreach.detail?.move] || outreach.detail?.move}${outreach.detail?.refused ? " (code: " + outreach.detail.refused + ")" : ""}` : "Waiting for the owner"};
   else out.owner = {s:"pending", note:"Asked once per race"};
   for (const k of ["charge","issue","report","notify"]) {
@@ -136,7 +140,7 @@ function stepperState(task, actions, events) {
   // only one "active" at a time: the first not-done step
   let seenActive = false;
   for (const s of STEPS) { const o = out[s.key]; if (o.s === "active") { if (seenActive) o.s = "pending"; seenActive = true; } }
-  if (["referred","not_confirmed","not_eligible"].includes(st)) for (const s of STEPS.slice(3)) if (out[s.key].s === "pending") out[s.key] = {s:"skipped", note:"Not needed: no money moves"};
+  if (["referred","not_confirmed","not_eligible"].includes(st) || (task?.owner_declaration || task?.confirmation)?.fit === false) for (const s of STEPS.slice(3)) if (out[s.key].s === "pending") out[s.key] = {s:"skipped", note:"Not needed: no money moves"};
   return out;
 }
 function renderStepper(task, actions, events) {
@@ -154,7 +158,7 @@ function describe(event) {
     case "outreach_decision": return {icon:"☎", cls:"call", name:`Agent decided: ${MOVE[d.move] || title(d.move)}`, reason:(d.reason || "") + (d.refused ? ` — code refused: ${d.refused}` : "")};
     case "owner_phoned": return {icon:"☎", cls:"call", name:"Agent is calling the owner", reason:"A real phone call through ElevenLabs and Twilio"};
     case "owner_called": return {icon:"☎", cls:"call", name:"Agent called the owner (simulated)", reason:d.script};
-    case "owner_answered": return {icon:"✓", cls:"proof", name:`Owner answered: ${d.answer === "yes" ? "fit to run" : "not fit"}`, reason:"Heard on the phone call and recorded by the agent"};
+    case "owner_answered": return {icon:d.answer === "yes" ? "✓" : "!", cls:d.answer === "yes" ? "proof" : "bad", name:`Owner answered: ${d.answer === "yes" ? "fit to run" : "not fit"}`, reason:"Heard on the phone call and recorded by the agent"};
     case "agent_decision": return {icon:"⚙", cls:"bad", name:`Step not proven (${title(d.step)} at ${d.system}): ${MOVE[d.move] || title(d.move)}`, reason:d.reason};
     case "schema_change_detected": return {icon:"!", cls:"bad", name:`${d.system || "A system"} changed its field names`, reason:"The agent noticed the reply no longer matches"};
     case "case_found": return {icon:"⌕", cls:"proof", name:"Found a past fix with Atlas Vector Search", reason:"Learned earlier: one step this time"};
