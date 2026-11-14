@@ -17,6 +17,7 @@ from .. import db as dbm
 
 SYSTEMS = {"payments", "platform", "insurer", "notify"}
 MODES = {"none", "drop_response", "reject", "rename_field"}
+AFTER_WRITE: list = []  # callables taking the system name, run after a write takes effect
 
 app = FastAPI(title="Mock outside systems")
 
@@ -58,6 +59,10 @@ def write(system: str, body: Write):
         ops.insert_one(doc)
     except DuplicateKeyError:
         doc = ops.find_one({"system": system, "operation_id": body.operation_id})  # same ID: no second effect
+    # Demo hook: the write has taken effect; anything registered here (the API's
+    # "kill after the next charge") runs before the caller hears back.
+    for hook in AFTER_WRITE:
+        hook(system)
     if mode == "drop_response":
         # The write happened, but the caller never hears about it.
         raise HTTPException(504, "gateway timeout")

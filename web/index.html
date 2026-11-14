@@ -194,6 +194,7 @@
     <div class="killbox">
       <button id="kill" class="kill" aria-describedby="killNote">Kill agent</button>
       <small id="killNote">Judge's button: pull the plug any time, then press Start agent.</small>
+      <button id="killAfterCharge">Kill right after the next charge</button>
     </div>
     <div class="chaos">
       <span>Break the next request to</span>
@@ -440,6 +441,11 @@ act("kill", async () => {
   const r = await call("/control/kill", "POST");
   if (r.data && r.data.was_running) { killedAt = new Date().toISOString(); note("Agent KILLED (SIGKILL, no clean-up)", "bad", killedAt); flash("Killed. Press Start agent: it will resume without repeating anything."); }
   else note("Kill pressed: agent was not running", "warn");
+});
+act("killAfterCharge", async () => {
+  const r = await call("/control/kill-after-charge", "POST");
+  if (r.ok) { note("Armed: the agent dies the moment its next charge goes through, before it hears back", "bad"); flash("Armed. The next charge will take the money, then the agent dies before issuing the policy."); }
+  else note("Could not arm the kill", "warn");
 });
 act("reset", async () => {
   if (!confirm("Reset clears every task, ledger entry and mock record in this demo database. Continue?")) return;

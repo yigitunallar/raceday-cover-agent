@@ -18,6 +18,7 @@ from pydantic import BaseModel
 from .. import db as dbm
 from .. import seed as seed_module
 from ..mocks.app import app as mocks_app
+from ..mocks.app import AFTER_WRITE as mocks_after_write
 from ..mocks.app import summary as mock_summary
 
 app = FastAPI(title="Raceday Cover Agent")
@@ -126,6 +127,29 @@ def control_kill():
     _agent.send_signal(signal.SIGKILL)
     _agent.wait(timeout=5)
     return {"ok": True, "was_running": True}
+
+
+@app.post("/control/kill-after-charge")
+def control_kill_after_charge():
+    """Arm a kill for the moment the next charge takes effect, before the agent hears back.
+
+    The money has moved, the policy has not been issued, and the agent never learns
+    whether its charge worked: the worst moment to crash, made repeatable for the demo.
+    """
+    dbm.db()[dbm.MOCK_CHAOS].update_one({"system": "kill_after:payments"},
+                                        {"$set": {"mode": "kill", "count": 1}}, upsert=True)
+    return {"ok": True, "armed": True, "agent_running": _running()}
+
+
+def _kill_after_write(system: str) -> None:
+    doc = dbm.db()[dbm.MOCK_CHAOS].find_one_and_update(
+        {"system": f"kill_after:{system}", "count": {"$gt": 0}}, {"$inc": {"count": -1}})
+    if doc and _running():
+        _agent.send_signal(signal.SIGKILL)
+        _agent.wait(timeout=5)
+
+
+mocks_after_write.append(_kill_after_write)
 
 
 @app.get("/timeline")
