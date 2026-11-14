@@ -11,3 +11,4 @@ dist/
 .next/
 .pytest_cache/
 coverage/
+.claude/
