@@ -447,7 +447,9 @@ act("reset", async () => {
 });
 act("chaos", async () => {
   const system = $("chaosSystem").value, mode = $("chaosMode").value;
-  const r = await call("/mocks/chaos", "POST", { system, mode, count: 1 });
+  // A renamed field matters where the agent reads back; the reply to a write is never trusted anyway.
+  const target = mode === "rename_field" ? `${system}:read` : system;
+  const r = await call("/mocks/chaos", "POST", { system: target, mode, count: 1 });
   const what = $("chaosMode").selectedOptions[0].textContent.toLowerCase();
   note(r.ok ? `Chaos armed: next ${system} request will ${what}` : "Chaos failed", "warn");
   flash(r.ok ? `Armed: next ${system} request will ${what}.` : "Could not arm chaos.");
