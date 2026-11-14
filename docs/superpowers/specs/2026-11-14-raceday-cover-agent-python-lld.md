@@ -250,7 +250,7 @@ Use a versioned document in `pricing_matrix`. Rates and limits are fictional dem
   "matrix_version": "demo-2026-11-v1",
   "currency": "GBP",
   "effective_at": "2026-11-14T00:00:00Z",
-  "automated_value_limit": 250000,
+  "automated_value_limit": 200000,
   "required_fields": ["horse_id", "race_status", "age", "sex", "race_type", "cover_type", "fit_to_run", "value_basis", "ownership_share"],
   "base_rates": [
     {"age_band": "4-6", "sex": "Mare", "race_type": "Flat", "cover_type": "starting_gate", "rate": "0.0080", "minimum_premium": "150.00"}
@@ -317,7 +317,7 @@ Amounts are decimal strings in JSON and `Decimal` values in Python. The numbers 
 - Required for a valid quote: matched horse/race identity, declared status, cover type, owner share, fit-to-run answer, age/sex/race type, supported value basis, and a matching rate row.
 - Supporting: detailed weight (unless a particular rule requires it), some pedigree details, older race history, and weather. A gap can produce a provisional quote and a warning.
 - If supporting health history is absent, the risk profile says `health_data_status: unknown`; it never says “clear.”
-- No automated quote above the team’s proposed £250,000 authority limit. Since there is no human loop, the task ends with `outside_automated_authority` rather than referring it.
+- No automated quote above the invented £200,000 demo authority limit. Since there is no human loop, the task ends with `outside_automated_authority` rather than referring it.
 
 ## 7. Atlas layout and initialization
 
