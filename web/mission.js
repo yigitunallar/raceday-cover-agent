@@ -1,9 +1,17 @@
 /* This page speaks only to the deployed Render API. It does not create local mock events. */
-const API = "https://raceday-cover-agent.onrender.com";
+const API = (typeof window !== "undefined" && window.API_BASE) || "https://raceday-cover-agent.onrender.com";
 const $ = id => document.getElementById(id);
 const esc = value => String(value ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const title = value => String(value || "unknown").replace(/^get_/, "").replace(/_/g, " ");
-const clock = value => { const date = new Date(value); return value && !isNaN(date) ? date.toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"}) : "—"; };
+const TZ = "America/Toronto";
+const dayKey = d => d.toLocaleDateString("en-CA", {timeZone:TZ});
+const clock = value => {
+  const date = new Date(value); if (!value || isNaN(date)) return "—";
+  const t = date.toLocaleTimeString("en-US", {timeZone:TZ, hour:"numeric", minute:"2-digit"});
+  return dayKey(date) === dayKey(new Date()) ? `${t} ET` : `${date.toLocaleDateString("en-US", {timeZone:TZ, month:"short", day:"numeric"})}, ${t} ET`;
+};
+const plainReason = r => String(r || "").replace(/race is at '([^']+)', not declared/i, "the race is still at the $1 stage and has not been declared yet").replace(/'/g, "");
+let referralSummaries = {};
 const money = (value, currency) => value == null || !Number.isFinite(Number(value)) ? "—" : new Intl.NumberFormat(undefined, {style:"currency",currency:currency || "EUR"}).format(Number(value));
 const setText = (id, text) => { $(id).textContent = text; };
 let tasks = [], selectedId = new URLSearchParams(location.search).get("task_id") || "", selectedGeneration = 0, quoteRoute = false, medicalRoute = false, intakeRoute = false, busy = false, workerRunning = false;
@@ -18,7 +26,14 @@ async function request(path, method = "GET", body) {
 function notice(message, error = false) {
   const el = $("notice"); el.textContent = message; el.style.color = error ? "#ad584f" : "";
 }
-function setHtml(id, html) { const node=$(id); if(node.innerHTML!==html) node.innerHTML=html; }
+const lastHtml = {};
+function setHtml(id, html) {
+  if (lastHtml[id] === html) return;
+  const node = $(id);
+  const open = new Set([...node.querySelectorAll("details[open][data-key]")].map(d => d.dataset.key));
+  node.innerHTML = html; lastHtml[id] = html;
+  for (const d of node.querySelectorAll("details[data-key]")) if (open.has(d.dataset.key)) d.open = true;
+}
 
 function populateHorses() {
   const task = tasks.find(t => t._id === selectedId);
@@ -27,7 +42,7 @@ function populateHorses() {
 
 function renderTask(task) {
   if (!task) {
-    setText("horseName", "No horse selected"); setText("raceName", "No tasks available from Render");
+    setText("horseName", "No horse selected"); setText("raceName", "No tasks available");
     setText("taskState", "NO TASK"); setText("taskIdLabel", "Select a horse");
     for (const id of ["raceType","rating","share","deadline","quoteAmount","sumInsured","premium","tax"]) setText(id, "—");
     $("requestQuote").disabled = true; $("declarationControls").hidden = true;
@@ -38,21 +53,37 @@ function renderTask(task) {
   setText("raceName", [race.race_name, race.race_status ? title(race.race_status) : ""].filter(Boolean).join("  ·  "));
   setText("taskShort", task.horse_id || "UNKNOWN HORSE"); setText("taskIdLabel", task._id);
   setText("taskState", title(status).toUpperCase());
-  const done = ["covered","quoted","not_eligible","not_confirmed","referred","blocked","quote_unverified"].includes(status);
+  const done = ["covered","quoted","not_eligible","not_confirmed","referred","blocked","quote_unverified","cancelled"].includes(status);
   setText("runHeadline", `Task: ${title(status)}`);
-  setText("runDescription", done ? "Latest status saved by the backend." : workerRunning ? "Shared worker running · waiting for updates." : "Shared worker stopped · saved state retained.");
+  setText("runDescription", done ? "Latest status saved by the backend." : workerRunning ? "Agent running · waiting for updates." : "Agent stopped · saved state retained.");
   $("progressRing").className = "progress-ring" + (["covered","quoted"].includes(status) ? " complete" : done ? " stopped" : workerRunning ? " active" : "");
   $("taskState").className = "status-chip" + (["blocked","referred","not_eligible","not_confirmed","quote_unverified"].includes(status) ? " issue" : "");
   setText("raceType", race.type || "—"); setText("rating", task.runner?.ofr || "—");
   setText("share", task.ownership_share == null ? "—" : `${Math.round(Number(task.ownership_share)*100)}%`);
   setText("deadline", clock(task.deadline));
-  setText("quoteLabel", quote.offerable ? (status === "covered" ? "SAVED PRICE · COVERED" : "SAVED QUOTE · COVER NOT CONFIRMED") : "WAITING FOR ASSESSMENT");
+  const finalLabel = status === "referred" ? "Referred to an underwriter · no charge"
+    : status === "not_confirmed" ? "No answer before the horse left · no charge"
+    : status === "not_eligible" ? `Not eligible: ${plainReason(task.reason || quote.reason || "does not meet the insurer's rules")}`
+    : ["cancelled","cancelling"].includes(status) ? "Cancelled · refund proven" : null;
+  setText("quoteLabel", finalLabel || (quote.offerable ? (status === "covered" ? "SAVED PRICE · COVERED" : "SAVED QUOTE · COVER NOT CONFIRMED") : "WAITING FOR ASSESSMENT"));
   setText("quoteAmount", quote.offerable ? money(quote.total, quote.currency) : "—");
-  $("coverageNote").hidden = !(quote.offerable && status !== "covered");
-  setText("coverageNote", "A quote is saved; coverage has not been confirmed.");
+  let note = "";
+  if (status === "referred") {
+    const v = quote.valuation || {};
+    note = `Why: ${task.referral_reason || "referred to an underwriter"}.`;
+    if (v.gap_flagged) note += ` Owner's figure ${money(task.stated_value ?? quote.full_value, quote.currency)} vs agent estimate ${money(v.estimate, quote.currency)}.`;
+    if (referralSummaries[task._id]) note += `\n\n${referralSummaries[task._id]}`;
+  } else if (finalLabel) note = "";
+  else if (quote.offerable && status !== "covered") note = "A quote is saved; coverage has not been confirmed.";
+  $("coverageNote").hidden = !note; $("coverageNote").style.whiteSpace = "pre-line";
+  setText("coverageNote", note);
+  setText("quoteText", quote.explanation || quote.reason || (status === "not_eligible" ? "" : "The quote appears here when the agent finishes pricing this horse."));
   const factors = (quote.risk_factors || []).map(f => f.evidence).filter(Boolean);
-  const quoteSummary = quote.offerable && status !== "covered" ? (factors.length ? `Recorded price factors: ${factors.join(" · ")}.` : "No additional price factors recorded.") : quote.explanation;
-  setText("quoteText", quoteSummary || (quote.reason ? quote.reason : "The quote appears here when the agent finishes pricing this horse."));
+  setHtml("quoteFactors", factors.map(f => `<li>${esc(f)}</li>`).join(""));
+  $("quoteFactors").hidden = !factors.length;
+  const addOns = quote.add_ons && typeof quote.add_ons === "object" ? Object.entries(quote.add_ons) : [];
+  $("addOnsRow").hidden = !addOns.length;
+  setText("addOns", addOns.map(([k, v]) => `${title(k)} ${money(v, quote.currency)}`).join(", ") || "—");
   setText("sumInsured", money(quote.sum_insured,quote.currency)); setText("premium", money(quote.premium,quote.currency)); setText("tax", money(quote.tax,quote.currency));
   const declaration = task.owner_declaration || task.confirmation;
   $("declarationControls").hidden = !(status === "awaiting_owner" && !declaration && !task.quote_only);
@@ -61,7 +92,7 @@ function renderTask(task) {
   const canRunExisting = !quote.offerable && ["new", "priced", "awaiting_owner"].includes(status);
   $("requestQuote").disabled = !canRequestNew && !canRunExisting;
   $("requestQuote").innerHTML = canRequestNew ? 'Request a quote <span>↗</span>' : canRunExisting ? 'Get quote from this task <span>↗</span>' : quote.offerable ? 'Quote saved <span>✓</span>' : 'Quote unavailable <span>↗</span>';
-  setText("quoteCapability", canRequestNew ? "Creates a quote-only request for this fictional horse." : canRunExisting ? "Starts the shared worker, which processes all open tasks." : quote.offerable ? "This task already has a saved quote." : "This task cannot currently produce a quote.");
+  setText("quoteCapability", canRequestNew ? "Creates a quote-only request for this fictional horse." : canRunExisting ? "Starts the agent, which processes all open tasks." : quote.offerable ? "This task already has a saved quote." : "This task cannot currently produce a quote.");
 }
 
 
@@ -99,7 +130,7 @@ function stepperState(task, actions, events) {
       : ["mismatched","unable_to_determine","not_found"].includes(a.state) ? {s:"issue", note:`${title(a.state)}${tries}`}
       : {s:"active", note:`Intent saved · checking the ${a.system}${tries}`};
   }
-  if (["cancelled","cancelling"].includes(st)) { out.notify = {s:"issue", note:"Cancelled by the owner: refund proven"}; }
+  if (["cancelled","cancelling"].includes(st)) { out.notify = {...out.notify, note:`${out.notify.note} · Cancelled by the owner: refund proven`}; }
   // only one "active" at a time: the first not-done step
   let seenActive = false;
   for (const s of STEPS) { const o = out[s.key]; if (o.s === "active") { if (seenActive) o.s = "pending"; seenActive = true; } }
@@ -166,7 +197,7 @@ function renderActivity(events, task) {
   const fresh = renderActivity.shown && renderActivity.shownFor === task?._id ? renderActivity.shown : null;
   const html = rows.map(({key, v, event}) => {
     const isNew = fresh && !fresh.has(key);  // only entries that just appeared animate in
-    return `<article class="activity-item ${v.cls}${isNew ? " arrive" : ""}"><div class="activity-icon">${esc(v.icon)}</div><div class="activity-main"><strong>${esc(v.name)}</strong>${v.reason ? `<p>${esc(v.reason)}</p>` : ""}${v.evidence ? `<details><summary>View saved evidence</summary><pre>${esc(v.evidence)}</pre></details>` : ""}</div><time>${esc(clock(event.at))}</time></article>`;
+    return `<article class="activity-item ${v.cls}${isNew ? " arrive" : ""}"><div class="activity-icon">${esc(v.icon)}</div><div class="activity-main"><strong>${esc(v.name)}</strong>${v.reason ? `<p>${esc(v.reason)}</p>` : ""}${v.evidence ? `<details data-key="${esc(key)}"><summary>View saved evidence</summary><pre>${esc(v.evidence)}</pre></details>` : ""}</div><time>${esc(clock(event.at))}</time></article>`;
   }).join("");
   renderActivity.shown = new Set(rows.map(r => r.key)); renderActivity.shownFor = task?._id;
   setText("eventCount", `${rows.length} EVENT${rows.length === 1 ? "" : "S"}`);
@@ -175,12 +206,12 @@ function renderActivity(events, task) {
 
 function renderEvidence(actions) {
   if (!actions.length) { setHtml("evidence",`<div class="empty-light">No outside action records for this task yet.</div>`); return; }
-  setHtml("evidence",actions.map(action => `<details class="evidence-detail"><summary class="evidence-row"><span>${esc(title(action.step))}<br><small>${esc(action.system || "")}</small></span><strong class="${action.state === "verified" ? "" : "pending"}">${esc(title(action.state).toUpperCase())} ↓</strong></summary><pre>${esc(JSON.stringify({operation_id:action.operation_id, evidence:action.evidence},null,2))}</pre></details>`).join(""));
+  setHtml("evidence",actions.map(action => `<details class="evidence-detail" data-key="${esc(action.operation_id || action.step)}"><summary class="evidence-row"><span>${esc(title(action.step))}<br><small>${esc(action.system || "")}</small></span><strong class="${action.state === "verified" ? "" : "pending"}">${esc(title(action.state).toUpperCase())} ↓</strong></summary><pre>${esc(JSON.stringify({operation_id:action.operation_id, evidence:action.evidence},null,2))}</pre></details>`).join(""));
 }
 function renderMedical(data, task) {
   if (!medicalRoute) {
     const finding = task?.investigation?.trail?.find(item => item.tool === "get_health_records")?.finding;
-    setHtml("medicalRecords", finding ? `<div class="medical-record"><span class="medical-label">SAVED HEALTH CHECK · DEMO DATA</span><pre>${esc(typeof finding === "string" ? finding : JSON.stringify(finding, null, 2))}</pre><p>Image viewing is not available on the deployed backend.</p></div>` : `<div class="empty-light">No saved health check for this task. Image viewing is not available on the deployed backend.</div>`);return;
+    setHtml("medicalRecords", finding ? `<div class="medical-record"><span class="medical-label">SAVED HEALTH CHECK · DEMO DATA</span><pre>${esc(typeof finding === "string" ? finding : JSON.stringify(finding, null, 2))}</pre></div>` : `<div class="empty-light">No saved health check for this task.</div>`);return;
   }
   const records=data?.medical_xrays || [];
   if (!records.length) {setHtml("medicalRecords",`<div class="empty-light">No X-ray record on file. This is not a health clearance.</div>`);return;}
@@ -190,8 +221,9 @@ function renderMedical(data, task) {
   }).join(""));
 }
 
+let refreshQueued = false;
 async function refresh() {
-  if (busy) return;
+  if (busy) { refreshQueued = true; return; }
   busy=true;
   try {
     const [health, allTasks] = await Promise.all([request("/health"),request("/tasks")]);
@@ -201,6 +233,7 @@ async function refresh() {
     workerRunning = !!health.agent_running;
     setText("workerState",workerRunning ? "Agent running" : "Agent stopped");
     $("workerDot").className = "worker-dot" + (health.agent_running ? " running" : "");
+    if (task?.status === "referred" && !referralSummaries[task._id]) { try { const refs = await request("/referrals"); for (const r of refs || []) if (r.task_id && r.pack?.summary) referralSummaries[r.task_id] = r.pack.summary; } catch (_) {} }
     renderTask(task);
     if (task) {
       const [events,actions,medical] = await Promise.all([request(`/timeline?task_id=${encodeURIComponent(task._id)}`),request(`/tasks/${encodeURIComponent(task._id)}/actions`),medicalRoute ? request(`/horse-profiles/${encodeURIComponent(task.horse_id)}/medical-xrays`).catch(()=>null) : null]);
@@ -208,8 +241,8 @@ async function refresh() {
     } else {renderActivity([],null);renderStepper(null);renderEvidence([]);renderMedical(null,null);}
   } catch (error) {
     setText("workerState","Connection issue"); $("workerDot").className="worker-dot error";
-    notice(`Could not read Render: ${error.message}`,true);
-  } finally {busy=false;}
+    notice(`Could not reach the agent: ${error.message}`,true);
+  } finally {busy=false; if (refreshQueued) { refreshQueued = false; refresh(); }}
 }
 
 
@@ -250,7 +283,7 @@ request("/openapi.json").then(doc=>{
   intakeRoute=!!doc.paths?.["/intake/requests"]?.post && !!doc.components?.schemas?.IntakeRequest?.properties?.fit_to_run && !!doc.components?.schemas?.IntakeRequest?.properties?.health_result;
   $("intakeSubmit").disabled = !intakeRoute;
   setText("intakeStatus", intakeRoute ? "Submit to start the shared agent." : "The updated intake is deploying. Your information will not be sent until the backend is ready.");
-}).catch(()=>{setText("intakeStatus", "Could not check the Render connection. Please try again later.");});
+}).catch(()=>{setText("intakeStatus", "Could not reach the agent. Please try again later.");});
 $("intakeForm").addEventListener("submit", async event => {
   event.preventDefault();
   if (!intakeRoute) return;

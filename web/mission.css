@@ -29,3 +29,7 @@
 .activity-item.proof .activity-icon{background:#e7f3ec;color:#2f7d55}
 .activity-item.call .activity-icon{background:#fbf0e2;color:#c9822b}
 .activity-item.bad .activity-icon{background:#f6e6e3;color:#ad584f}
+
+.console-link{font-weight:600;text-decoration:underline}
+.quote-factors{margin:6px 0 10px;padding-left:18px;font-size:.85em;opacity:.85}
+#taskIdLabel,#taskShort{font-size:.75em;opacity:.6}
