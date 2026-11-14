@@ -97,6 +97,9 @@ def _explain(q: dict[str, Any], old: dict[str, Any] | None) -> dict[str, Any]:
 def price(state: State) -> State:
     """Build the risk profile's findings and price the horse from the insurer's rules."""
     task = _task(state)
+    if task.get("quote_only") and (task.get("owner_declaration") or {}).get("fit") is False:
+        _set(task["_id"], status="not_eligible", reason="owner declared horse not fit to run")
+        return {"status": "not_eligible"}
     d = dbm.db()
     if task["race"].get("race_status") != "declared":
         _set(task["_id"], status="not_eligible", reason=f"race is at '{task['race'].get('race_status')}', not declared")

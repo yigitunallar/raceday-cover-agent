@@ -54,8 +54,9 @@ function renderTask(task) {
   const quoteSummary = quote.offerable && status !== "covered" ? (factors.length ? `Recorded price factors: ${factors.join(" · ")}.` : "No additional price factors recorded.") : quote.explanation;
   setText("quoteText", quoteSummary || (quote.reason ? quote.reason : "The quote appears here when the agent finishes pricing this horse."));
   setText("sumInsured", money(quote.sum_insured,quote.currency)); setText("premium", money(quote.premium,quote.currency)); setText("tax", money(quote.tax,quote.currency));
-  $("declarationControls").hidden = !(status === "awaiting_owner" && !task.confirmation);
-  setText("inputText", task.confirmation ? `Declaration recorded: ${task.confirmation.fit ? "fit to run" : "not fit to run"}.` : status === "awaiting_owner" ? "The owner’s fit-to-run declaration is required for this task." : "When a task is waiting for a fit-to-run declaration, the owner can record it here.");
+  const declaration = task.owner_declaration || task.confirmation;
+  $("declarationControls").hidden = !(status === "awaiting_owner" && !declaration && !task.quote_only);
+  setText("inputText", declaration ? `Owner declared: ${declaration.fit ? "fit to run" : "not fit to run"}.` : status === "awaiting_owner" ? "The owner’s fit-to-run declaration is required for this task." : "When a task is waiting for a fit-to-run declaration, the owner can record it here.");
   const canRequestNew = quoteRoute && String(task._id).startsWith("task_") && !task.quote_only;
   const canRunExisting = !quote.offerable && ["new", "priced", "awaiting_owner"].includes(status);
   $("requestQuote").disabled = !canRequestNew && !canRunExisting;
@@ -87,7 +88,7 @@ function stepperState(task, actions, events) {
   const outreach = [...ev].reverse().find(e => e.kind === "outreach_decision"), phoned = ev.some(e => e.kind === "owner_phoned");
   if (st === "referred") out.owner = {s:"issue", note: task.referral_reason || "Referred to an underwriter"};
   else if (st === "not_confirmed") out.owner = {s:"issue", note:"No answer before the horse left: no charge"};
-  else if (task?.confirmation) out.owner = {s:"done", note:`${task.confirmation.fit ? "Fit to run" : "Not fit"} · ${task.confirmation.given_by || "owner"}`};
+  else if (task?.owner_declaration || task?.confirmation) { const declaration = task.owner_declaration || task.confirmation; out.owner = {s:"done", note:`${declaration.fit ? "Fit to run" : "Not fit"} · ${declaration.given_by || "owner"}`}; }
   else if (st === "awaiting_owner") out.owner = {s:"active", note: phoned ? "Agent is on the phone with the owner…" : outreach ? `Agent chose: ${({call_now:"call now", app_reminder:"in-app reminder", wait:"wait"})[outreach.detail?.move] || outreach.detail?.move}${outreach.detail?.refused ? " (code: " + outreach.detail.refused + ")" : ""}` : "Waiting for the owner"};
   else out.owner = {s:"pending", note:"Asked once per race"};
   for (const k of ["charge","issue","report","notify"]) {

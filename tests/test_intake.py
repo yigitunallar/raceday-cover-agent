@@ -40,3 +40,32 @@ def test_quote_only_stops_after_verified_quote(monkeypatch):
     assert updates[-1] == {'status': 'quoted'}
     database[dbm.TASKS].find_one.return_value = {'quote': {'total': 99}}
     assert graph.price({'task_id': task['_id']}) == {'status': 'quote_unverified'}
+
+
+def test_intake_saves_owner_declaration_and_structured_health(monkeypatch):
+    database = MagicMock()
+    monkeypatch.setattr(dbm, 'db', lambda: database)
+    source = {'_id': 'task_original', 'horse': 'Demo Horse', 'horse_id': 'h1',
+              'race': {'race_id': 'r1', 'race_status': 'declared'}, 'runner': {},
+              'ownership_share': 1, 'deadline': datetime.now(timezone.utc) + timedelta(hours=1)}
+    database[dbm.TASKS].find.return_value.limit.return_value = [source]
+    database[dbm.HORSE_PROFILES].find_one.return_value = {'horse_id': 'h1'}
+    body = intake.IntakeRequest(horse_name='Demo Horse', medical_history='Some history', fit_to_run='no',
+                                health_kind='vet exam', health_date='2026-11-01', health_result='issue')
+    intake.create_intake(body)
+    task = database[dbm.TASKS].insert_one.call_args.args[0]
+    assert task['owner_declaration']['fit'] is False
+    assert task['confirmation'] is None
+    assert task['owner_health_record'] == {'kind': 'vet exam', 'date': '2026-11-01', 'result': 'issue'}
+    assert investigator._tools_impl(task, {})['get_health_records']()['owner_health_record'] == task['owner_health_record']
+
+
+def test_not_fit_quote_stops_before_pricing(monkeypatch):
+    from raceday.agent import graph
+    task = {'_id': 'quote_demo', 'horse_id': 'h1', 'race': {'race_status': 'declared'},
+            'quote_only': True, 'owner_declaration': {'fit': False}}
+    monkeypatch.setattr(graph, '_task', lambda state: task)
+    updates = []
+    monkeypatch.setattr(graph, '_set', lambda tid, **fields: updates.append(fields))
+    assert graph.price({'task_id': task['_id']})['status'] == 'not_eligible'
+    assert updates[-1]['status'] == 'not_eligible'
