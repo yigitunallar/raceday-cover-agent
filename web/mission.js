@@ -247,9 +247,9 @@ function showTask() {
 request("/openapi.json").then(doc=>{
   quoteRoute=!!doc.paths?.["/demo/quote-requests"]?.post;
   medicalRoute=!!doc.paths?.["/horse-profiles/{horse_id}/medical-xrays"]?.get;
-  intakeRoute=!!doc.paths?.["/intake/requests"]?.post;
+  intakeRoute=!!doc.paths?.["/intake/requests"]?.post && !!doc.components?.schemas?.IntakeRequest?.properties?.fit_to_run && !!doc.components?.schemas?.IntakeRequest?.properties?.health_result;
   $("intakeSubmit").disabled = !intakeRoute;
-  setText("intakeStatus", intakeRoute ? "Submit to start the shared agent." : "New requests are not available on Render yet. Your information will not be sent.");
+  setText("intakeStatus", intakeRoute ? "Submit to start the shared agent." : "The updated intake is deploying. Your information will not be sent until the backend is ready.");
 }).catch(()=>{setText("intakeStatus", "Could not check the Render connection. Please try again later.");});
 $("intakeForm").addEventListener("submit", async event => {
   event.preventDefault();
