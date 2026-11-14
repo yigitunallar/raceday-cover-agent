@@ -153,10 +153,22 @@ function renderActivity(events, task) {
   setText("decisionText", latestDecision ? (latestDecision.detail.why || latestDecision.detail.reason) : "No decision recorded yet.");
   setText("eventCount", `${list.length} EVENT${list.length === 1 ? "" : "S"}`);
   if (!list.length) { setHtml("activity", `<div class="empty">No saved activity for this horse yet.<br>The log updates when the backend records a step.</div>`); return; }
-  const html = list.map(event => {
+  const seenKeys = new Set();
+  const rows = [];
+  for (const event of list) {
     const v = describe(event);
-    return `<article class="activity-item ${v.cls}"><div class="activity-icon">${esc(v.icon)}</div><div class="activity-main"><strong>${esc(v.name)}</strong>${v.reason ? `<p>${esc(v.reason)}</p>` : ""}${v.evidence ? `<details><summary>View saved evidence</summary><pre>${esc(v.evidence)}</pre></details>` : ""}</div><time>${esc(clock(event.at))}</time></article>`;
+    const key = `${event.kind}|${v.name}|${v.reason || ""}`;
+    if (seenKeys.has(key)) continue;  // the same step saved twice (e.g. a horse priced by two threads) shows once
+    seenKeys.add(key);
+    rows.push({key, v, event});
+  }
+  const fresh = renderActivity.shown && renderActivity.shownFor === task?._id ? renderActivity.shown : null;
+  const html = rows.map(({key, v, event}) => {
+    const isNew = fresh && !fresh.has(key);  // only entries that just appeared animate in
+    return `<article class="activity-item ${v.cls}${isNew ? " arrive" : ""}"><div class="activity-icon">${esc(v.icon)}</div><div class="activity-main"><strong>${esc(v.name)}</strong>${v.reason ? `<p>${esc(v.reason)}</p>` : ""}${v.evidence ? `<details><summary>View saved evidence</summary><pre>${esc(v.evidence)}</pre></details>` : ""}</div><time>${esc(clock(event.at))}</time></article>`;
   }).join("");
+  renderActivity.shown = new Set(rows.map(r => r.key)); renderActivity.shownFor = task?._id;
+  setText("eventCount", `${rows.length} EVENT${rows.length === 1 ? "" : "S"}`);
   setHtml("activity",html);
 }
 
