@@ -129,6 +129,7 @@ def investigate(task: dict[str, Any], profile: dict[str, Any], client_factory=No
                 elif u.name in impl:
                     out = impl[u.name]()
                     trail.append({"tool": u.name, "why": str(u.input.get("why", ""))[:200], "finding": _short(out)})
+                    _log_step(task, trail[-1])  # saved the moment it happens, so the page shows it live
                     results.append({"type": "tool_result", "tool_use_id": u.id, "content": json.dumps(out, default=str)})
                 else:
                     results.append({"type": "tool_result", "tool_use_id": u.id, "is_error": True, "content": "Unknown tool."})
@@ -144,7 +145,17 @@ def investigate(task: dict[str, Any], profile: dict[str, Any], client_factory=No
                 "fallback_reason": repr(e)[:200], "ms": int((datetime.now(timezone.utc) - started).total_seconds() * 1000)}
 
 
+def _log_step(task: dict[str, Any], step: dict[str, Any]) -> None:
+    try:
+        dbm.db()[dbm.TIMELINE].insert_one({"task_id": task["_id"], "at": datetime.now(timezone.utc), "kind": "investigate",
+                                           "detail": {"system": "investigation", **step}, "duration_ms": None, "live": True})
+    except Exception:  # noqa: BLE001 - logging must never break the investigation
+        pass
+
+
 def log_trail(task_id: str, result: dict[str, Any]) -> None:
+    if result.get("source") == "model":
+        return  # each step was already saved live by _log_step
     rows = [{"task_id": task_id, "at": datetime.now(timezone.utc), "kind": "investigate",
              "detail": {"system": "investigation", "tool": t["tool"], "why": t["why"], "finding": t["finding"]},
              "duration_ms": None} for t in result["trail"]]

@@ -10,3 +10,22 @@
 .intake-card{background:#fff;border:1px solid var(--line);border-radius:14px;padding:24px;margin-bottom:30px;box-shadow:0 7px 30px #243a1e08}.intake-card h2{font:400 32px 'DM Serif Display',Georgia,serif;margin:8px 0}.intake-card>p,.intake-help{color:#80887b;font-size:12px}.intake-card label{display:block;font-size:12px;font-weight:700;color:#566452;margin-top:14px}.intake-card label span{font-weight:400;color:#98a093}.intake-grid{display:grid;grid-template-columns:1fr 1fr;gap:15px}.intake-card input,.intake-card textarea{display:block;width:100%;border:1px solid #dfe5d9;border-radius:8px;padding:12px;margin-top:6px;background:#fbfcf8;color:#20251e;font:14px 'DM Sans',sans-serif}.intake-card textarea{resize:vertical}.intake-card input:focus,.intake-card textarea:focus{outline:2px solid #9bb96c}.medical-record pre{white-space:pre-wrap;overflow-wrap:anywhere;color:#75806f;font:11px/1.5 var(--mono)}@media(max-width:620px){.intake-grid{grid-template-columns:1fr;gap:0}}
 
 [hidden]{display:none!important}
+
+/* Agent progress stepper */
+.stepper-card{background:#fff;border:1px solid rgba(0,0,0,.08);border-radius:18px;padding:18px 18px 10px;margin-bottom:16px}
+.stepper{list-style:none;margin:12px 0 0;padding:0}
+.stepper li{display:grid;grid-template-columns:26px 1fr;gap:10px;padding:0 0 14px;position:relative}
+.stepper li:not(:last-child)::before{content:"";position:absolute;left:12px;top:24px;bottom:2px;width:2px;background:#e6e1d8}
+.stepper li.done:not(:last-child)::before{background:#2f7d55}
+.stepper .dot{width:26px;height:26px;border-radius:50%;display:grid;place-items:center;font-size:13px;font-weight:700;background:#f2eee7;color:#8a847a;border:2px solid #e6e1d8;z-index:1}
+.stepper li.done .dot{background:#2f7d55;border-color:#2f7d55;color:#fff}
+.stepper li.active .dot{background:#fff;border-color:#c9822b;color:#c9822b;animation:steppulse 1.2s ease-in-out infinite}
+.stepper li.issue .dot{background:#ad584f;border-color:#ad584f;color:#fff}
+.stepper li.skipped .dot{opacity:.45}
+.stepper b{display:block;font-size:14px}
+.stepper small{display:block;color:#7a746b;font-size:12px;line-height:1.35;margin-top:2px}
+.stepper li.skipped b,.stepper li.skipped small{opacity:.5}
+@keyframes steppulse{0%,100%{box-shadow:0 0 0 0 rgba(201,130,43,.45)}50%{box-shadow:0 0 0 6px rgba(201,130,43,0)}}
+.activity-item.proof .activity-icon{background:#e7f3ec;color:#2f7d55}
+.activity-item.call .activity-icon{background:#fbf0e2;color:#c9822b}
+.activity-item.bad .activity-icon{background:#f6e6e3;color:#ad584f}

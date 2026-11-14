@@ -63,22 +63,99 @@ function renderTask(task) {
   setText("quoteCapability", canRequestNew ? "Creates a quote-only request for this fictional horse." : canRunExisting ? "Starts the shared worker, which processes all open tasks." : quote.offerable ? "This task already has a saved quote." : "This task cannot currently produce a quote.");
 }
 
+
+/* ---------- agent progress: a stepper built from saved task state, ledger actions and timeline ---------- */
+const STEPS = [
+  {key:"investigate", label:"Investigate the horse"},
+  {key:"price", label:"Price the cover"},
+  {key:"owner", label:"Owner confirms fit to run"},
+  {key:"charge", label:"Take payment", system:"payments"},
+  {key:"issue", label:"Issue the policy", system:"platform"},
+  {key:"report", label:"Report to the insurer", system:"insurer"},
+  {key:"notify", label:"Notify the owner", system:"notify"},
+];
+function stepperState(task, actions, events) {
+  const st = task?.status || "", q = task?.quote || {}, inv = task?.investigation;
+  const act = Object.fromEntries((actions || []).map(a => [a.step, a]));
+  const ev = events || [];
+  const out = {};
+  const invSteps = ev.filter(e => e.kind === "investigate").length || (inv?.trail || []).length;
+  out.investigate = inv ? {s:"done", note:`${(inv.trail || []).length} checks chosen by the model${inv.source === "template" ? " (fallback)" : ""}`}
+    : invSteps ? {s:"active", note:`${invSteps} checks so far…`} : {s: st === "new" ? "active" : "pending", note:"Choosing what to check"};
+  if (st === "not_eligible") out.price = {s:"issue", note: task.reason || "Not eligible"};
+  else out.price = q.offerable ? {s:"done", note:`${money(q.total, q.currency)} · ${(q.risk_factors || []).length ? (q.risk_factors || []).map(f => f.evidence).join(", ") : "standard risk"}`} : {s: inv ? "active" : "pending", note:"Code applies the insurer's rules"};
+  const outreach = [...ev].reverse().find(e => e.kind === "outreach_decision"), phoned = ev.some(e => e.kind === "owner_phoned");
+  if (st === "referred") out.owner = {s:"issue", note: task.referral_reason || "Referred to an underwriter"};
+  else if (st === "not_confirmed") out.owner = {s:"issue", note:"No answer before the horse left: no charge"};
+  else if (task?.confirmation) out.owner = {s:"done", note:`${task.confirmation.fit ? "Fit to run" : "Not fit"} · ${task.confirmation.given_by || "owner"}`};
+  else if (st === "awaiting_owner") out.owner = {s:"active", note: phoned ? "Agent is on the phone with the owner…" : outreach ? `Agent chose: ${({call_now:"call now", app_reminder:"in-app reminder", wait:"wait"})[outreach.detail?.move] || outreach.detail?.move}${outreach.detail?.refused ? " (code: " + outreach.detail.refused + ")" : ""}` : "Waiting for the owner"};
+  else out.owner = {s:"pending", note:"Asked once per race"};
+  for (const k of ["charge","issue","report","notify"]) {
+    const a = act[k];
+    if (!a) { out[k] = {s:"pending", note:"Intent saved, sent with an operation ID, read back"}; continue; }
+    const tries = a.attempts > 1 ? ` · sent ${a.attempts}× with the same ID` : "";
+    out[k] = a.state === "verified" ? {s:"done", note:`Verified by read-back${tries}`}
+      : ["mismatched","unable_to_determine","not_found"].includes(a.state) ? {s:"issue", note:`${title(a.state)}${tries}`}
+      : {s:"active", note:`Intent saved · checking the ${a.system}${tries}`};
+  }
+  if (["cancelled","cancelling"].includes(st)) { out.notify = {s:"issue", note:"Cancelled by the owner: refund proven"}; }
+  // only one "active" at a time: the first not-done step
+  let seenActive = false;
+  for (const s of STEPS) { const o = out[s.key]; if (o.s === "active") { if (seenActive) o.s = "pending"; seenActive = true; } }
+  if (["referred","not_confirmed","not_eligible"].includes(st)) for (const s of STEPS.slice(3)) if (out[s.key].s === "pending") out[s.key] = {s:"skipped", note:"Not needed: no money moves"};
+  return out;
+}
+function renderStepper(task, actions, events) {
+  if (!task) { setHtml("stepper", ""); return; }
+  const state = stepperState(task, actions, events);
+  const doneCount = STEPS.filter(s => state[s.key].s === "done").length;
+  setText("stepperTitle", task.status === "covered" ? "Covered: every step proven" : `${doneCount} of ${STEPS.length} steps done`);
+  setHtml("stepper", STEPS.map((s, i) => { const o = state[s.key]; return `<li class="${o.s}"><span class="dot">${o.s === "done" ? "✓" : o.s === "issue" ? "!" : i + 1}</span><span><b>${esc(s.label)}</b><small>${esc(o.note || "")}</small></span></li>`; }).join(""));
+}
+const MOVE = {call_now:"☎️ Call the owner now", app_reminder:"📱 Send an in-app reminder", wait:"⏳ Wait", read_back_again:"Read back again", resend_same_id:"Re-send with the same ID", refund_and_escalate:"Refund and escalate", escalate:"Escalate to a human"};
+function describe(event) {
+  const d = event.detail || {}, k = event.kind;
+  switch (k) {
+    case "investigate": return {icon:"⌕", cls:"", name:`Checked ${title(d.tool)}`, reason:d.why, evidence:d.finding};
+    case "outreach_decision": return {icon:"☎", cls:"call", name:`Agent decided: ${MOVE[d.move] || title(d.move)}`, reason:(d.reason || "") + (d.refused ? ` — code refused: ${d.refused}` : "")};
+    case "owner_phoned": return {icon:"☎", cls:"call", name:"Agent is calling the owner", reason:"A real phone call through ElevenLabs and Twilio"};
+    case "owner_called": return {icon:"☎", cls:"call", name:"Agent called the owner (simulated)", reason:d.script};
+    case "owner_answered": return {icon:"✓", cls:"proof", name:`Owner answered: ${d.answer === "yes" ? "fit to run" : "not fit"}`, reason:"Heard on the phone call and recorded by the agent"};
+    case "agent_decision": return {icon:"⚙", cls:"bad", name:`Step not proven (${title(d.step)} at ${d.system}): ${MOVE[d.move] || title(d.move)}`, reason:d.reason};
+    case "schema_change_detected": return {icon:"!", cls:"bad", name:`${d.system || "A system"} changed its field names`, reason:"The agent noticed the reply no longer matches"};
+    case "case_found": return {icon:"⌕", cls:"proof", name:"Found a past fix with Atlas Vector Search", reason:"Learned earlier: one step this time"};
+    case "model_mapping": return {icon:"✳", cls:"", name:"Model worked out the new field mapping", reason:"Code will check it before use"};
+    case "mapping_validated": return {icon:"✓", cls:"proof", name:"Mapping validated by code", reason:"Saved as a case for next time"};
+    case "refund": case "refund_verified": return {icon:"↺", cls:"proof", name:"Refund verified", reason:""};
+    case "cancel_requested": return {icon:"×", cls:"bad", name:"Owner asked to cancel", reason:""};
+    case "policy_cancelled": return {icon:"✓", cls:"proof", name:"Policy cancelled and proven", reason:""};
+    case "cancel_refused_after_departure": return {icon:"!", cls:"bad", name:"Cancel refused: the horse has left the stable", reason:"Cover has started, no refund"};
+    case "ledger": return {icon:"✓", cls: d.state === "verified" ? "proof" : "", name:d.name, reason:d.reason, evidence:d.evidence};
+    default: return {icon:"✳", cls:"", name:title(k), reason:d.reason || d.why || d.move || "", evidence:Object.keys(d).length ? JSON.stringify(d, null, 2) : ""};
+  }
+}
+function ledgerEvents(actions) {
+  const out = [];
+  for (const a of actions || []) {
+    const label = {charge:"payment", issue:"policy", report:"insurer report", notify:"owner notification", refund:"refund", cancel_policy:"policy cancellation"}[a.step] || a.step;
+    out.push({kind:"ledger", at:a.created_at, detail:{name:`Intent saved: ${label}`, reason:`Operation ${a.operation_id} recorded in Atlas before calling ${a.system}`, state:"intent"}});
+    if (a.state && a.state !== "intent") out.push({kind:"ledger", at:a.updated_at, detail:{name:a.state === "verified" ? `Proven: ${label} exists at ${a.system}` : `${title(a.state)}: ${label}`, reason:a.state === "verified" ? `Read back from ${a.system}${a.attempts > 1 ? `, sent ${a.attempts}× with the same ID` : ""}: no duplicate possible` : "", state:a.state, evidence:a.evidence ? JSON.stringify(a.evidence, null, 2) : ""}});
+  }
+  return out;
+}
 function renderActivity(events, task) {
   let list = Array.isArray(events) ? events : [];
   if (!list.length && Array.isArray(task?.investigation?.trail)) {
     list = task.investigation.trail.map(item => ({kind:"investigate", detail:item, at:task.updated_at}));
   }
-  const latestDecision = [...list].reverse().find(event => event.detail?.why || event.detail?.reason);
+  const latestDecision = list.find(event => event.kind !== "ledger" && (event.detail?.why || event.detail?.reason));
   setText("decisionLabel", task?.investigation?.source === "template" ? "LATEST SAVED STEP · FALLBACK" : "LATEST SAVED DECISION");
   setText("decisionText", latestDecision ? (latestDecision.detail.why || latestDecision.detail.reason) : "No decision recorded yet.");
   setText("eventCount", `${list.length} EVENT${list.length === 1 ? "" : "S"}`);
   if (!list.length) { setHtml("activity", `<div class="empty">No saved activity for this horse yet.<br>The log updates when the backend records a step.</div>`); return; }
   const html = list.map(event => {
-    const detail=event.detail || {};
-    const name=event.kind === "investigate" ? title(detail.tool || "investigation") : title(event.kind);
-    const reason=detail.why || detail.reason || detail.description || detail.move || "";
-    const evidence=detail.finding || (Object.keys(detail).length ? JSON.stringify(detail,null,2) : "");
-    return `<article class="activity-item"><div class="activity-icon">${event.kind === "investigate" ? "⌕" : "✳"}</div><div class="activity-main"><strong>${esc(name)}</strong>${reason ? `<p>${esc(reason)}</p>` : ""}${evidence ? `<details><summary>View saved evidence</summary><pre>${esc(evidence)}</pre></details>` : ""}</div><time>${esc(clock(event.at))}</time></article>`;
+    const v = describe(event);
+    return `<article class="activity-item ${v.cls}"><div class="activity-icon">${esc(v.icon)}</div><div class="activity-main"><strong>${esc(v.name)}</strong>${v.reason ? `<p>${esc(v.reason)}</p>` : ""}${v.evidence ? `<details><summary>View saved evidence</summary><pre>${esc(v.evidence)}</pre></details>` : ""}</div><time>${esc(clock(event.at))}</time></article>`;
   }).join("");
   setHtml("activity",html);
 }
@@ -114,8 +191,8 @@ async function refresh() {
     renderTask(task);
     if (task) {
       const [events,actions,medical] = await Promise.all([request(`/timeline?task_id=${encodeURIComponent(task._id)}`),request(`/tasks/${encodeURIComponent(task._id)}/actions`),medicalRoute ? request(`/horse-profiles/${encodeURIComponent(task.horse_id)}/medical-xrays`).catch(()=>null) : null]);
-      if (generation === selectedGeneration && task._id === selectedId) {renderActivity(events,task);renderEvidence(actions);if(medicalRoute && !medical) setHtml("medicalRecords",`<div class="empty-light">Medical records could not be loaded.</div>`);else renderMedical(medical,task);}
-    } else {renderActivity([],null);renderEvidence([]);renderMedical(null,null);}
+      if (generation === selectedGeneration && task._id === selectedId) {const merged=[...(events||[]),...ledgerEvents(actions)].sort((a,b)=>new Date(b.at)-new Date(a.at));renderActivity(merged,task);renderStepper(task,actions,events);renderEvidence(actions);if(medicalRoute && !medical) setHtml("medicalRecords",`<div class="empty-light">Medical records could not be loaded.</div>`);else renderMedical(medical,task);}
+    } else {renderActivity([],null);renderStepper(null);renderEvidence([]);renderMedical(null,null);}
   } catch (error) {
     setText("workerState","Connection issue"); $("workerDot").className="worker-dot error";
     notice(`Could not read Render: ${error.message}`,true);
