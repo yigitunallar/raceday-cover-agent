@@ -23,6 +23,7 @@ import hashlib
 import json
 import math
 import re
+import threading
 import time
 from datetime import datetime, timezone
 from typing import Any, Callable
@@ -192,6 +193,9 @@ def ask_model(system: str, body: dict[str, Any]) -> Any:
 
 # ---------------------------------------------------------------- the recovery
 
+_recover_lock = threading.Lock()
+
+
 def recover(system: str, op_id: str, body: dict[str, Any],
             refetch: Callable[[], dict[str, Any] | None],
             model: Callable[[str, dict[str, Any]], Any] = ask_model) -> dict[str, Any] | None:
@@ -199,6 +203,15 @@ def recover(system: str, op_id: str, body: dict[str, Any],
 
     Returns the canonical body from a retried read (or None if the retry finds nothing).
     """
+    # The worker runs several horses at once. When a system changes, they all see it
+    # together: one learns the mapping, the rest wait and then reuse its profile.
+    with _recover_lock:
+        return _recover(system, op_id, body, refetch, model)
+
+
+def _recover(system: str, op_id: str, body: dict[str, Any],
+             refetch: Callable[[], dict[str, Any] | None],
+             model: Callable[[str, dict[str, Any]], Any]) -> dict[str, Any] | None:
     task_id = op_id.rsplit(":", 1)[0]
     keys = sorted(body)
 

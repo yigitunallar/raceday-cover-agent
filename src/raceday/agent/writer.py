@@ -16,6 +16,7 @@ per horse.
 from __future__ import annotations
 
 import json
+import os
 import re
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -30,7 +31,10 @@ COOL_DOWN_S = 60.0
 EXPLANATION_MAX_WORDS = 40
 SUMMARY_MAX_WORDS = 150
 
-_pool = ThreadPoolExecutor(max_workers=2, thread_name_prefix="writer")
+# One slot per concurrent horse (and spare): the timeout below counts from submit,
+# so a queued call must not wait behind other horses' calls and "time out" unasked.
+_pool = ThreadPoolExecutor(max_workers=max(4, 2 * int(os.environ.get("WORKER_CONCURRENCY", "6"))),
+                           thread_name_prefix="writer")
 _down_until = 0.0  # circuit breaker: skip the model until this monotonic time
 
 # A number as people write it: 1,234.50  450k  20%  -> captured digits plus an optional k/m suffix.

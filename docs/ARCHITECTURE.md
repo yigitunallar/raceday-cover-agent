@@ -99,7 +99,7 @@ Nothing is re-sent blindly, and the model's history is not replayed.
 - **Referral pack:** writes the one-page summary for the underwriter.
 - **Unknown outcome:** chooses which evidence to gather and picks continue, re-send or refund.
 - **Changed system:** a response arrives with renamed fields; it proposes the mapping, saves a new `system_profiles` version and retries only that step.
-- **Triage:** the horse that leaves the stable soonest goes first.
+- **Triage:** the horse that leaves the stable soonest goes first. The worker runs several horses at once (`WORKER_CONCURRENCY`, default 6; a thread per horse, never the same horse twice at once) because most of a horse's time is spent waiting on the model. Crash safety does not depend on this: the ledger's operation IDs and read-back hold for any number of threads. A full 13-horse day: about 5 min one at a time, 80 s at 6, 45 s at 13 (incl. ~12 s worker start-up).
 - **Learning:** after solving a problem it writes a case; next time Vector Search finds it and the fix takes one step.
 
 It can never mark an action verified, move money outside the rules, or answer the owner's declaration.
