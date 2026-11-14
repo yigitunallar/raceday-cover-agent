@@ -15,7 +15,7 @@ from langgraph.graph import END, START, StateGraph
 from .. import config, rules
 from .. import db as dbm
 from ..ledger import Outcome, guarded_write
-from . import decider, writer
+from . import decider, investigator, writer
 from .tools import look_up, send
 
 
@@ -96,6 +96,10 @@ def price(state: State) -> State:
         _set(task["_id"], status="not_eligible", reason=f"race is at '{task['race'].get('race_status')}', not declared")
         return {"status": "not_eligible"}
     profile = d[dbm.HORSE_PROFILES].find_one({"horse_id": task["horse_id"]}) or {}
+    if not task.get("investigation"):  # once per horse: a resume or a re-run reuses it
+        found = investigator.investigate(task, profile)
+        _set(task["_id"], investigation=found)
+        investigator.log_trail(task["_id"], found)
     rule_doc = d[dbm.INSURER_RULES].find_one(sort=[("version", -1)]) or rules.DEFAULT_RULES
     q = rules.quote(task["race"], task.get("runner", {}), task["ownership_share"], profile,
                     stated_value=task.get("stated_value"), add_ons=task.get("add_ons"), rules=rule_doc)

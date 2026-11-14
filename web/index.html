@@ -317,7 +317,13 @@ function detailHTML(t) {
   const exp = explanation(t), rs = reasonList(t), q = t.quote || {};
   const why = exp ? `<p class="explain">${esc(exp)}</p>` : rs.length ? `<ul class="reasons">${rs.map(r => `<li>${esc(r)}</li>`).join("")}</ul>` : `<p class="mute small">Not priced yet.</p>`;
   const price = q.offerable ? `<dl class="kv"><dt>Premium</dt><dd class="num">${money(q.premium, q.currency)}${q.risk_adjustment && q.risk_adjustment !== 1 ? ` <span class="mute">(x${esc(q.risk_adjustment)} for risk)</span>` : ""}</dd><dt>Tax</dt><dd class="num">${money(q.tax, q.currency)}</dd><dt>Total</dt><dd class="num"><b>${money(q.total, q.currency)}</b></dd></dl>` : "";
-  const side = [`<div class="panel"><h3>${exp ? "Agent's explanation" : "Why this price"}</h3>${why}${price}</div>`];
+  const side = [];
+  const inv = t.investigation;
+  if (inv && inv.trail && inv.trail.length) {
+    const nice = s => String(s || "").replace(/^get_/, "").replace(/_/g, " ");
+    side.push(`<div class="panel"><h3>How the agent investigated${inv.source === "template" ? " (fallback checklist)" : ""}</h3><ol class="reasons">${inv.trail.map(s => `<li><b>${esc(nice(s.tool))}</b>${s.why ? ` · ${esc(s.why)}` : ""}${/refused/.test(s.finding || "") ? ` <span class="gap">${esc(s.finding)}</span>` : ""}</li>`).join("")}</ol>${inv.summary ? `<p class="explain">${esc(inv.summary)}</p>` : ""}</div>`);
+  }
+  side.push(`<div class="panel"><h3>${exp ? "Agent's explanation" : "Why this price"}</h3>${why}${price}</div>`);
   if (t.status === "referred" || referrals[t._id]) side.push(`<div class="panel"><h3>Underwriter's pack</h3>${referralHTML(t)}</div>`);
   return `<div class="detail-in"><div class="panel"><h3>Ledger: what was intended and what was proven</h3>${ledgerHTML(actionsCache[t._id])}</div><div class="stack">${side.join("")}</div></div>`;
 }
@@ -357,7 +363,7 @@ function normaliseTimeline(data) {
     const at = e.at || e.ts || e.time || e.created_at || e.updated_at;
     const who = e.horse || (tasks.find(t => t._id === e.task_id) || {}).horse;
     const d = e.detail && typeof e.detail === "object" ? e.detail : null;
-    const decided = e.kind === "agent_decision" && d ? `Model decided: ${label(d.move)} (${d.step} at ${d.system}) · ${d.reason || ""}${d.source === "template" ? " [fallback]" : ""}` : null;
+    const decided = e.kind === "investigate" && d ? `Investigated ${String(d.tool || "").replace(/^get_/, "").replace(/_/g, " ")}${d.why ? " · " + d.why : ""}` : e.kind === "agent_decision" && d ? `Model decided: ${label(d.move)} (${d.step} at ${d.system}) · ${d.reason || ""}${d.source === "template" ? " [fallback]" : ""}` : null;
     const what = decided || e.message || e.text || e.summary || (d ? [label(e.kind), d.system, d.move || d.state || (d.mapping ? "fields mapped" : "")].filter(Boolean).join(": ") : e.detail) || [label(e.event || e.kind || e.type), e.step && label(e.step), e.state && label(e.state)].filter(Boolean).join(": ");
     const k = String(e.kind || e.event || e.type || e.state || "").toLowerCase();
     const cls = /kill|crash|lost|reject|mismatch|fail|error/.test(k) ? "bad" : /recover|resum|verified|found/.test(k) ? "good" : /retry|resend|re-send|refer/.test(k) ? "warn" : "";
