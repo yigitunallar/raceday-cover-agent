@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Raceday Cover Agent</title>
+<style>
+  :root { --bg:#f6f5f1; --card:#fff; --ink:#1c1b19; --mute:#6b6862; --line:#e3e0d8; --ok:#1f7a4d; --warn:#a15c00; --bad:#b3261e; --accent:#1d4ed8; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#151412; --card:#1f1e1b; --ink:#f1efe9; --mute:#a09c93; --line:#34322d; --ok:#5fd39a; --warn:#f0b35a; --bad:#ff8a80; --accent:#8fb0ff; } }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width:1100px; margin:0 auto; padding:20px 16px 60px; }
+  h1 { font-size:22px; margin:0 0 2px; } h2 { font-size:15px; margin:26px 0 8px; color:var(--mute); font-weight:600; text-transform:uppercase; letter-spacing:.04em; }
+  .sub { color:var(--mute); margin:0 0 16px; }
+  .row { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+  button { font:inherit; padding:8px 14px; border-radius:8px; border:1px solid var(--line); background:var(--card); color:var(--ink); cursor:pointer; }
+  button.primary { background:var(--accent); border-color:var(--accent); color:#fff; }
+  button.danger { background:var(--bad); border-color:var(--bad); color:#fff; }
+  button:disabled { opacity:.5; cursor:default; }
+  .tiles { display:grid; grid-template-columns:repeat(auto-fit, minmax(130px, 1fr)); gap:10px; }
+  .tile { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:12px; }
+  .tile b { display:block; font-size:26px; font-variant-numeric:tabular-nums; } .tile span { color:var(--mute); font-size:13px; }
+  .wrap { overflow-x:auto; background:var(--card); border:1px solid var(--line); border-radius:10px; }
+  table { border-collapse:collapse; width:100%; min-width:720px; } th, td { text-align:left; padding:9px 12px; border-bottom:1px solid var(--line); vertical-align:top; }
+  th { font-size:12px; color:var(--mute); text-transform:uppercase; letter-spacing:.04em; } tr:last-child td { border-bottom:0; }
+  .pill { display:inline-block; padding:2px 9px; border-radius:99px; font-size:12px; border:1px solid var(--line); }
+  .covered { color:var(--ok); border-color:var(--ok); } .referred, .awaiting_owner { color:var(--warn); border-color:var(--warn); } .blocked, .not_confirmed { color:var(--bad); border-color:var(--bad); }
+  .why { color:var(--mute); font-size:13px; } .num { font-variant-numeric:tabular-nums; white-space:nowrap; }
+  #state { font-size:13px; color:var(--mute); } select, input { font:inherit; padding:7px 8px; border-radius:8px; border:1px solid var(--line); background:var(--card); color:var(--ink); }
+</style>
+</head>
+<body>
+<main>
+  <h1>Raceday Cover Agent</h1>
+  <p class="sub">Covers every declared runner before it leaves the stable: one charge, one policy, one insurer record, even after a crash.</p>
+
+  <div class="row">
+    <button id="seed">Load race meeting</button>
+    <button id="confirmAll">Owners confirm fit to run</button>
+    <button id="start" class="primary">Start agent</button>
+    <button id="kill" class="danger">Kill agent</button>
+    <button id="reset">Reset</button>
+    <span id="state"></span>
+  </div>
+
+  <h2>Scoreboard</h2>
+  <div class="tiles" id="tiles"></div>
+
+  <h2>Outside systems</h2>
+  <div class="tiles" id="systems"></div>
+  <div class="row" style="margin-top:10px">
+    <select id="chaosSystem"><option>payments</option><option>platform</option><option>insurer</option><option>notify</option></select>
+    <select id="chaosMode"><option value="drop_response">Lose the response</option><option value="reject">Reject</option><option value="rename_field">Rename fields</option></select>
+    <button id="chaos">Break next request</button>
+  </div>
+
+  <h2>Runners</h2>
+  <div class="wrap"><table><thead><tr><th>Horse</th><th>Race</th><th>Status</th><th>Price</th><th>Why</th><th></th></tr></thead><tbody id="rows"></tbody></table></div>
+</main>
+<script src="config.js"></script>
+<script>
+const API = window.API_BASE;
+const $ = id => document.getElementById(id);
+const call = (path, method = "GET", body) => fetch(API + path, { method, headers: { "content-type": "application/json" }, body: body ? JSON.stringify(body) : undefined }).then(r => r.json());
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const label = s => String(s || "").replace(/_/g, " ");
+let tasks = [];
+
+async function refresh() {
+  try {
+    const [board, list] = await Promise.all([call("/scoreboard"), call("/tasks")]);
+    tasks = list;
+    $("state").textContent = board.agent_running ? "Agent is running" : "Agent is stopped";
+    const missed = 0;
+    $("tiles").innerHTML = [["Declared", board.declared], ["Covered", board.covered], ["Referred", board.referred],
+      ["Not confirmed", board.not_confirmed], ["In progress", board.in_progress], ["Missed", missed]]
+      .map(([k, v]) => `<div class="tile"><b>${v}</b><span>${k}</span></div>`).join("");
+    $("systems").innerHTML = Object.entries(board.systems).map(([k, v]) =>
+      `<div class="tile"><b>${v.records}</b><span>${esc(k)} records, ${v.duplicates} duplicates</span></div>`).join("");
+    $("rows").innerHTML = list.map(t => {
+      const q = t.quote || {};
+      const why = t.referral_reason || (q.risk_factors || []).map(f => f.evidence).join(", ") || (q.offerable ? "standard risk" : "");
+      const price = q.offerable ? `${esc(q.currency)} ${q.total.toFixed(2)}` : "";
+      const ask = t.status === "awaiting_owner" ? `<button data-fit="${esc(t._id)}">Fit to run</button>` : "";
+      return `<tr><td>${esc(t.horse)}</td><td>${esc(t.race.race_name)}</td><td><span class="pill ${esc(t.status)}">${esc(label(t.status))}</span></td><td class="num">${price}</td><td class="why">${esc(why)}</td><td>${ask}</td></tr>`;
+    }).join("") || `<tr><td colspan="6" class="why">No runners yet. Load the race meeting.</td></tr>`;
+  } catch (e) { $("state").textContent = "Cannot reach the API at " + API; }
+}
+const act = (id, fn) => $(id).addEventListener("click", async () => { $(id).disabled = true; try { await fn(); } finally { $(id).disabled = false; refresh(); } });
+act("seed", () => call("/control/seed", "POST"));
+act("start", () => call("/control/start", "POST"));
+act("kill", () => call("/control/kill", "POST"));
+act("reset", () => call("/control/reset", "POST"));
+act("chaos", () => call("/mocks/chaos", "POST", { system: $("chaosSystem").value, mode: $("chaosMode").value, count: 1 }));
+act("confirmAll", () => Promise.all(tasks.filter(t => !t.confirmation).map(t => call(`/tasks/${t._id}/confirm`, "POST", { fit: true }))));
+$("rows").addEventListener("click", async e => { const id = e.target.dataset.fit; if (id) { await call(`/tasks/${id}/confirm`, "POST", { fit: true }); refresh(); } });
+refresh(); setInterval(refresh, 1500);
+</script>
+</body>
+</html>
