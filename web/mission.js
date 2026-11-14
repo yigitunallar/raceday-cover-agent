@@ -234,7 +234,8 @@ async function refresh() {
   if (busy) { refreshQueued = true; return; }
   busy=true;
   try {
-    const [health, allTasks] = await Promise.all([request("/health"),request("/tasks")]);
+    const [health, allTasks, board] = await Promise.all([request("/health"),request("/tasks"),request("/scoreboard").catch(()=>null)]);
+    if (killArmed && workerRunning && !health.agent_running) { killArmed = false; notice("Agent KILLED right after taking the payment. It never heard back. Press Start agent: it will read back before acting.", true); }
     tasks = Array.isArray(allTasks) ? allTasks : [];
     populateHorses();
     const task=tasks.find(t=>t._id === selectedId), generation=selectedGeneration;
@@ -245,7 +246,7 @@ async function refresh() {
     renderTask(task);
     if (task) {
       const [events,actions,medical] = await Promise.all([request(`/timeline?task_id=${encodeURIComponent(task._id)}`),request(`/tasks/${encodeURIComponent(task._id)}/actions`),medicalRoute ? request(`/horse-profiles/${encodeURIComponent(task.horse_id)}/medical-xrays`).catch(()=>null) : null]);
-      if (generation === selectedGeneration && task._id === selectedId) {const merged=[...(events||[]),...ledgerEvents(actions)].sort((a,b)=>new Date(b.at)-new Date(a.at));renderActivity(merged,task);renderStepper(task,actions,events);renderEvidence(actions);if(medicalRoute && !medical) setHtml("medicalRecords",`<div class="empty-light">Medical records could not be loaded.</div>`);else renderMedical(medical,task);}
+      if (generation === selectedGeneration && task._id === selectedId) {const merged=[...(events||[]),...ledgerEvents(actions)].sort((a,b)=>new Date(b.at)-new Date(a.at));renderActivity(merged,task);renderStepper(task,actions,events);renderProof(task,actions,board);renderEvidence(actions);if(medicalRoute && !medical) setHtml("medicalRecords",`<div class="empty-light">Medical records could not be loaded.</div>`);else renderMedical(medical,task);}
     } else {renderActivity([],null);renderStepper(null);renderEvidence([]);renderMedical(null,null);}
   } catch (error) {
     setText("workerState","Connection issue"); $("workerDot").className="worker-dot error";
@@ -261,6 +262,28 @@ async function control(path, verb) {
 }
 $("startAgent").addEventListener("click",()=>control("/control/start","Start"));
 $("killAgent").addEventListener("click",()=>control("/control/kill","Kill"));
+let killArmed = false;
+$("killAfterCharge").addEventListener("click", async () => {
+  try { await request("/control/kill-after-charge", "POST", {}); killArmed = true;
+    notice("Armed: the agent will be killed the instant it takes the next payment, before it hears back."); }
+  catch (error) { notice(error.message, true); }
+});
+$("ringPhone").addEventListener("click", async () => {
+  const task = tasks.find(t => t._id === selectedId); if (!task) return;
+  if (!confirm(`This rings a real phone to ask whether ${task.horse} is fit to run. Continue?`)) return;
+  $("ringPhone").disabled = true;
+  try { await request(`/tasks/${encodeURIComponent(task._id)}/phone`, "POST", {}); notice(`Calling the owner about ${task.horse}… answer, press any key, then reply.`); }
+  catch (error) { notice(`Call failed: ${error.message}`, true); }
+  finally { setTimeout(() => { $("ringPhone").disabled = false; }, 15000); }
+});
+function renderProof(task, actions, board) {
+  if (!task || !board) { setHtml("proofLine", ""); return; }
+  const done = Object.fromEntries((actions || []).filter(a => a.state === "verified").map(a => [a.step, true]));
+  const dup = Object.values(board.systems || {}).reduce((n, v) => n + (v.duplicates || 0), 0);
+  const parts = [];
+  if (done.charge) parts.push("1 payment"); if (done.issue) parts.push("1 policy"); if (done.report) parts.push("1 insurer record");
+  setHtml("proofLine", `PROOF · ${parts.length ? esc(parts.join(" · ")) + " · " : ""}<span class="${dup ? "bad" : ""}">DUPLICATES ACROSS EVERY SYSTEM: ${dup}</span>`);
+}
 async function declare(fit) {
   const task=tasks.find(t=>t._id===selectedId);
   if (!task || !confirm(`Record that the owner declared ${task.horse} ${fit ? "fit" : "not fit"} to run?`)) return;
