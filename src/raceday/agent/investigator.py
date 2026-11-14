@@ -32,6 +32,7 @@ def _tools_impl(task: dict[str, Any], profile: dict[str, Any]) -> dict[str, Call
                                                                          reverse=True)],
             "official_rating": profile.get("official_rating") or "none"},
         "get_health_records": lambda: {"owner_provided_history": task.get("owner_medical_history") or "none provided",
+                                       "owner_health_record": task.get("owner_health_record"),
                                        "on_file": "no health records on file for this horse" if not profile.get("health_records") else "see records",
                                        "records": [
             {"days_ago": _days_ago(h["date"], now), "kind": h.get("kind"), "result": h.get("result"),
@@ -70,7 +71,8 @@ SYSTEM = (
     "follow up anything unusual: a long gap or a failed finish leads to health records; a health issue leads to past "
     "declarations; an owner's value above what the rating suggests leads to sales and earnings. Skip checks that cannot "
     "change anything for this horse. Every tool call needs a short 'why' that refers to what you have seen. When you "
-    "have enough, call ready_to_price. You never set a price."
+    "have enough, call ready_to_price. Summarize health concerns or missing information from the available records; "
+    "do not claim that the horse is medically cleared or invent an owner declaration. You never set a price."
 )
 
 
