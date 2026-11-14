@@ -19,29 +19,23 @@ H = {"xi-api-key": KEY}
 PUBLIC = os.environ.get("PUBLIC_API_URL", "https://raceday-cover-agent.onrender.com")
 VOICE = os.environ.get("ELEVENLABS_VOICE", "JBFqnCBsd6RMkjVDRZzb")
 
-PROMPT = """You are the raceday cover agent, phoning a racehorse owner. Your only job on this call is to get a clear
-yes or no to one question: is {{horse}} fit to run today in the {{race}}?
-
-Facts you may mention if asked (do not invent others): cover is {{cover}}; the price is {{price}};
-the price reflects {{reasons}}; exclusions: {{exclusions}}.
-
-Rules:
-- Be brief, warm and professional. This is a short call.
-- Only a clear yes or a clear no counts. If the answer is unclear ("I think so", "probably"), ask once more.
-  If it is still unclear, say you will record no answer, and end the call politely without calling the tool.
-- As soon as you have a clear answer, call record_answer exactly once with "yes" or "no", read back what you
-  recorded, thank the owner and end the call.
-- Never answer for the owner, never change the price, and never promise cover: cover is confirmed separately."""
+PROMPT = """You are the raceday cover agent calling about {{horse}} in {{race}}.
+First check whether {{health_followup_required}} is yes. If yes, ask {{health_question}}. Record what the owner
+actually says as health_notes. Set health_resolved false if details remain unknown; never invent medical facts.
+Then ask whether the horse is fit to run today. Only a clear yes or no counts; if unclear ask once more.
+Call record_answer once with the clear answer and, when health follow-up is required, the health_notes. Read back
+what you recorded, thank the owner and end. Do not invent an answer, give veterinary advice, change prices, or promise cover.
+If asked: cover {{cover}}; price {{price}}; reasons {{reasons}}; exclusions {{exclusions}}."""
 
 FIRST = ("Hello, this is your raceday cover agent calling about {{horse}} in the {{race}} today. "
-         "Before the horse leaves the yard: is {{horse}} fit to run today?")
+         "I have a few questions about the horse before it leaves the yard.")
 
 
 def agent() -> None:
     secret = os.environ["VOICE_WEBHOOK_SECRET"]
     tool = httpx.post(f"{API}/tools", headers=H, timeout=30, json={"tool_config": {
         "type": "webhook", "name": "record_answer",
-        "description": "Record the owner's clear yes or no to 'is the horse fit to run today?'. Call once, only for a clear answer.",
+        "description": "Record the owner's clear fit-to-run answer and any requested health follow-up. Call once.",
         "execution_mode": "immediate", "response_timeout_secs": 20,
         "api_schema": {
             "url": f"{PUBLIC}/voice/answer", "method": "POST", "content_type": "application/json",
@@ -49,6 +43,8 @@ def agent() -> None:
             "request_body_schema": {"type": "object", "required": ["task_id", "answer"], "properties": {
                 "task_id": {"type": "string", "dynamic_variable": "task_id"},
                 "conversation_id": {"type": "string", "dynamic_variable": "system__conversation_id"},
+                "health_notes": {"type": "string", "description": "Owner-provided health details; required if a health follow-up was requested."},
+                "health_resolved": {"type": "boolean", "description": "True only if the owner answered the requested health question clearly; false if they do not know."},
                 "answer": {"type": "string", "enum": ["yes", "no"],
                            "description": "yes if the owner clearly said the horse is fit to run, no if clearly not"}}}}}})
     print("tool:", tool.status_code, tool.text[:300])
@@ -62,7 +58,8 @@ def agent() -> None:
                       "dynamic_variables": {"dynamic_variable_placeholders": {
                           "task_id": "test", "horse": "Copper Lantern", "race": "Kilbarrow Handicap",
                           "cover": "60,000 euros", "price": "378.00 euros including tax",
-                          "reasons": "no extra risk factors", "exclusions": "none"}}},
+                          "reasons": "no extra risk factors", "exclusions": "none",
+                          "health_followup_required": "yes", "health_question": "Please describe the horse's health history and any follow-up."}}},
             "tts": {"voice_id": VOICE}}})
     print("agent:", r.status_code, r.text[:300])
     r.raise_for_status()

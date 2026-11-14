@@ -45,10 +45,15 @@ def log_call(task_id: str, text: str) -> None:
                                        "detail": {"system": "voice", "script": text}, "duration_ms": None})
 
 
-def phone_variables(task: dict[str, Any]) -> dict[str, Any]:
+def phone_variables(task: dict[str, Any], profile: dict[str, Any] | None = None) -> dict[str, Any]:
     """What the phone agent is told about this horse. Everything comes from code-computed facts."""
     q = task.get("quote") or {}
+    history = (task.get("owner_medical_history") or "").lower()
+    required = not task.get("owner_health_followup") and (not (profile or {}).get("health_records") or
+        any(word in history for word in ("unknown", "unclear", "incomplete")))
     return {
+        "health_followup_required": "yes" if required else "no",
+        "health_question": ("Please describe the horse's health history, recent vet examination, any known conditions, and follow-up still needed." if required else "No additional health question is required."),
         "task_id": task["_id"], "horse": task.get("horse", "your horse"),
         "race": (task.get("race") or {}).get("race_name", "the race"),
         "cover": f"{q.get('sum_insured', 0):,.0f} euros" if q.get("offerable") else "not yet priced",
@@ -65,12 +70,16 @@ def place_call(task: dict[str, Any]) -> dict[str, Any]:
                               ("DEMO_OWNER_PHONE", config.DEMO_OWNER_PHONE)] if not v]
     if missing:
         raise RuntimeError(f"phone calling not configured: {missing}")
+    d = dbm.db()
+    profile = d[dbm.HORSE_PROFILES].find_one({"horse_id": task.get("horse_id")}) or {}
+    variables = phone_variables(task, profile)
+    d[dbm.TASKS].update_one({"_id": task["_id"]}, {"$set": {"voice_health_required": variables["health_followup_required"] == "yes"}})
     r = httpx.post("https://api.elevenlabs.io/v1/convai/twilio/outbound-call",
                    headers={"xi-api-key": config.ELEVENLABS_API_KEY},
                    json={"agent_id": config.ELEVENLABS_AGENT_ID,
                          "agent_phone_number_id": config.ELEVENLABS_PHONE_NUMBER_ID,
                          "to_number": config.DEMO_OWNER_PHONE,
-                         "conversation_initiation_client_data": {"dynamic_variables": phone_variables(task)}},
+                         "conversation_initiation_client_data": {"dynamic_variables": variables}},
                    timeout=30)
     r.raise_for_status()
     out = r.json()

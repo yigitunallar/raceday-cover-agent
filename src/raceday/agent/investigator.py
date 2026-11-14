@@ -32,7 +32,7 @@ def _tools_impl(task: dict[str, Any], profile: dict[str, Any]) -> dict[str, Call
                                                                          reverse=True)],
             "official_rating": profile.get("official_rating") or "none"},
         "get_health_records": lambda: {"owner_provided_history": task.get("owner_medical_history") or "none provided",
-                                       "owner_health_record": task.get("owner_health_record"),
+                                       "owner_health_record": task.get("owner_health_record"), "owner_phone_followup": task.get("owner_health_followup"),
                                        "on_file": "no health records on file for this horse" if not profile.get("health_records") else "see records",
                                        "records": [
             {"days_ago": _days_ago(h["date"], now), "kind": h.get("kind"), "result": h.get("result"),

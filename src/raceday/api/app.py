@@ -224,6 +224,8 @@ class VoiceAnswer(BaseModel):
     task_id: str
     answer: str  # "yes" or "no", as the phone agent heard it
     conversation_id: str | None = None
+    health_notes: str | None = None
+    health_resolved: bool = False
 
 
 @app.post("/voice/answer")
@@ -233,15 +235,39 @@ def voice_answer(body: VoiceAnswer, x_webhook_secret: str = Header(default="")):
         raise HTTPException(401, "bad secret")
     if body.answer not in ("yes", "no"):
         raise HTTPException(400, "answer must be yes or no; an unclear answer is no answer")
-    result = dbm.db()[dbm.TASKS].update_one(
-        {"_id": body.task_id, "confirmation": None, "deadline": {"$gt": datetime.now(timezone.utc)}},
-        {"$set": {"confirmation": {"fit": body.answer == "yes", "given_by": "owner (phone call)",
-                                   "conversation_id": body.conversation_id, "at": datetime.now(timezone.utc)}}})
-    dbm.db()[dbm.TIMELINE].insert_one({"task_id": body.task_id, "at": datetime.now(timezone.utc), "kind": "owner_answered",
-                                       "detail": {"system": "voice", "answer": body.answer,
-                                                  "conversation_id": body.conversation_id}, "duration_ms": None})
+    d = dbm.db()
+    task = d[dbm.TASKS].find_one({"_id": body.task_id})
+    if not task:
+        raise HTTPException(404, "unknown task")
+    notes = (body.health_notes or "").strip()
+    if len(notes) > 2000:
+        raise HTTPException(422, "health notes are too long")
+    if task.get("voice_health_required") and not notes:
+        raise HTTPException(409, "Ask for the missing health information before recording the answer")
+    if (task.get("voice_health_required") or notes) and (not body.conversation_id or not d[dbm.TIMELINE].find_one(
+            {"task_id": body.task_id, "kind": "owner_phoned", "detail.conversation_id": body.conversation_id})):
+        raise HTTPException(409, "conversation does not match the recorded call")
+    now = datetime.now(timezone.utc)
+    fields = {"confirmation": {"fit": body.answer == "yes", "given_by": "owner (phone call)",
+                               "conversation_id": body.conversation_id, "at": now}}
+    if notes:
+        fields.update(owner_health_followup={"notes": notes, "resolved": body.health_resolved,
+                                              "conversation_id": body.conversation_id, "at": now},
+                      investigation=None, quote=None)
+    if task.get("voice_health_required") and not body.health_resolved:
+        fields.pop("confirmation")
+        fields.update(status="health_unresolved", reason="Owner could not resolve missing health information")
+    result = d[dbm.TASKS].update_one(
+        {"_id": body.task_id, "confirmation": None, "deadline": {"$gt": now}}, {"$set": fields})
+    if result.matched_count:
+        d[dbm.TIMELINE].insert_one({"task_id": body.task_id, "at": now, "kind": "health_followup_unresolved" if task.get("voice_health_required") and not body.health_resolved else "owner_answered",
+                                   "detail": {"system": "voice", "answer": body.answer,
+                                              "conversation_id": body.conversation_id,
+                                              "health_followup_saved": bool(notes)}, "duration_ms": None})
     if not result.matched_count:
         return {"ok": False, "message": "Thanks. That answer could not be recorded: already answered or too late."}
+    if task.get("voice_health_required") and not body.health_resolved:
+        return {"ok": False, "message": "The health information is still incomplete, so the task is paused."}
     return {"ok": True, "message": "Thank you, the answer is recorded."}
 
 
