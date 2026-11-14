@@ -70,7 +70,7 @@ def startup() -> None:
 @app.get("/health")
 def health():
     dbm.client().admin.command("ping")
-    return {"ok": True, "agent_running": _running()}
+    return {"ok": True, "agent_running": _running(), "scoped_outreach": True}
 
 
 @app.get("/tasks")

@@ -100,7 +100,10 @@ def decide(f: dict[str, Any], call: Callable[[str, dict[str, Any]], str] | None 
 
 def maybe_reach_owner(task: dict[str, Any], call=None) -> dict[str, Any] | None:
     """Called while a horse waits for its owner. Decides at most every DECIDE_EVERY, only while the switch is on."""
-    if not auto_calls_on() or task.get("confirmation"):
+    settings = dbm.db()[SETTINGS].find_one({"_id": "outreach"}) or {}
+    if not settings.get("auto_call") or task.get("confirmation"):
+        return None
+    if settings.get("only_task_id") and settings["only_task_id"] != task.get("_id"):
         return None
     now = datetime.now(timezone.utc)
     history = task.get("outreach") or []
