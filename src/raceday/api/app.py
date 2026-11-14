@@ -8,6 +8,7 @@ import signal
 import subprocess
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -98,8 +99,12 @@ def confirm(task_id: str, body: Confirmation):
     return {"ok": True}
 
 
+_POOL = ThreadPoolExecutor(max_workers=4, thread_name_prefix="scoreboard")
+
+
 @app.get("/scoreboard")
 def scoreboard():
+    systems = _POOL.submit(mock_summary)  # the two round trips run side by side
     counts: dict[str, int] = {}
     for row in dbm.db()[dbm.TASKS].aggregate([{"$match": {"quote_only": {"$ne": True}}},
                                               {"$group": {"_id": "$status", "n": {"$sum": 1}}}]):
@@ -109,7 +114,7 @@ def scoreboard():
     return {"declared": declared, "covered": counts.get("covered", 0), "referred": counts.get("referred", 0),
             "not_confirmed": counts.get("not_confirmed", 0), "not_eligible": counts.get("not_eligible", 0),
             "cancelled": counts.get("cancelled", 0),
-            "in_progress": declared - accounted, "by_status": counts, "systems": mock_summary(),
+            "in_progress": declared - accounted, "by_status": counts, "systems": systems.result(timeout=10),
             "agent_running": _running()}
 
 
