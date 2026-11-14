@@ -41,6 +41,7 @@ RUNNERS = [
     ("hrs_d11", "Plain Sailing", "rac_k4", "Gelding", 9, 131, "own_2", 1.0, None, ["vet_fees"], "clean"),
     ("hrs_d12", "Maple Verdict", "rac_k1", "Filly", 3, 98, "own_4", 1.0, None, [], "clean"),
     ("hrs_d13", "Quiet Harbour", "rac_k4", "Mare", 7, 122, "own_1", 1.0, None, [], "long_absence"),
+    ("hrs_d14", "New Horizon", "rac_k3", "Filly", 3, None, "own_2", 1.0, None, [], "no_health_data"),
 ]
 
 OWNERS = {"own_1": "IE", "own_2": "IE", "own_3": "GB", "own_4": "IE"}
@@ -81,6 +82,10 @@ def _profile(i, horse_id, name, rating, story, now):
     if story == "pre_existing":  # known condition: excluded, not priced
         p["health_records"].append({"date": day(400), "kind": "tendon scan", "result": "issue", "pre_existing": True,
                                     "condition": "left fore tendon"})
+    if story == "no_health_data":  # newly arrived, unraced: nothing on file; the owner's intake form fills the gap
+        p["runs"], p["health_records"], p["declarations"] = [], [], []
+        p["career_earnings"] = "0"
+        p["note"] = "New to us: no health history on file. Ask the owner for it through the intake form."
     if story == "long_absence":
         p["runs"] = [{"date": day(260), "race_id": "rac_hist_q", "finished": True, "position": "3"}]
         p["health_records"].append({"date": day(40), "kind": "x-ray", "result": "issue"})
