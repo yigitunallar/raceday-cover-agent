@@ -175,6 +175,7 @@
       <h1>Raceday Cover Agent</h1>
       <p class="sub">Covers every declared runner before it leaves the stable: one charge, one policy, one insurer record, even if the agent is killed halfway. All data is invented.</p>
     </div>
+    <a href="mission.html" style="font-weight:600">Owner view (one horse) →</a>
     <div class="agent" id="agent" role="status" aria-live="polite"><span class="dot"></span><span id="agentText">Connecting</span></div>
   </header>
 
@@ -187,7 +188,7 @@
   <h2>Controls</h2>
   <section class="card controls">
     <div class="steps">
-      <button id="demoStart" class="primary">⚡ Demo start (ready in ~30 s)</button>
+      <button id="demoStart" class="primary">⚡ Demo start (~45 s)</button>
       <button id="confirmButOne">Confirm all but Copper Lantern</button>
       <button id="autoCall">🤖 Agent calls owners: OFF</button>
       <button id="seed"><span class="n">1</span>Load race meeting</button>
@@ -202,7 +203,7 @@
     </div>
     <div class="chaos">
       <span>Break the next request to</span>
-      <select id="chaosSystem" aria-label="Outside system"><option value="payments">payments</option><option value="platform">platform</option><option value="insurer">insurer</option><option value="notify">notify</option></select>
+      <select id="chaosSystem" aria-label="Outside system"><option value="payments">payments</option><option value="platform">platform</option><option value="insurer">insurer</option><option value="notify">notify</option><option value="refunds">refunds</option><option value="cancellations">cancellations</option></select>
       <select id="chaosMode" aria-label="What goes wrong"><option value="drop_response">Lose the response</option><option value="reject">Reject</option><option value="rename_field">Rename fields</option><option value="down">Go down (keeps failing)</option></select>
       <button id="chaos">Break it</button>
       <span id="flash" aria-live="polite"></span>
@@ -249,13 +250,13 @@ const money = (n, cur) => {
   catch (_) { return `${cur || ""} ${v.toLocaleString()}`; }
 };
 
-const DONE = new Set(["covered", "referred", "not_confirmed", "not_eligible"]);
+const DONE = new Set(["covered", "referred", "not_confirmed", "not_eligible", "cancelled", "cancelling"]);
 const STEPS = { charge: "Charge the owner", issue: "Issue the policy", report: "Report to the insurer", notify: "Notify the owner", refund: "Refund the owner" };
 const pillClass = s => DONE.has(s) || ["awaiting_owner", "blocked"].includes(s) ? s : "moving";
 
 let tasks = [], referrals = {}, actionsCache = {}, open = new Set();
 let lastStatus = {}, localLog = [], timelineOK = null, timelineRetryAt = 0, serverLog = [];
-let killedAt = null, wasRunning = null;
+let killedAt = null, wasRunning = null, armedKill = false;
 
 function note(text, cls = "", at = new Date().toISOString()) {
   localLog.push({ at, text, cls });
@@ -292,7 +293,7 @@ function ledgerHTML(actions) {
       const cls = st === "verified" ? "ok" : st === "not_found" ? "warn" : "bad";
       const ref = a.evidence && (a.evidence.reference || (a.evidence.found && a.evidence.found.reference));
       const words = { verified: "Read back: verified", not_found: "Read back: not found", mismatched: "Read back: mismatched, task stopped", unable_to_determine: "Read back: could not tell, task stopped safely" }[st] || "Read back: " + label(st);
-      ev.push(`<li class="${cls}"><time>${clock(a.updated_at)}</time><span>${words}${ref ? ` <code>${esc(ref)}</code>` : ""}</span></li>`);
+      ev.push(`<li class="${cls}"><time>${clock(a.updated_at)}</time><span>${words}${ref ? ` <code>${esc(ref)}</code>` : ""}${a.evidence && a.evidence.found_on_read_back ? ` <b>verified after restart</b>` : ""}</span></li>`);
     }
     return `<li><div class="stephead">${esc(STEPS[a.step] || label(a.step))} <span class="mute small">${esc(a.system)}</span> <span class="pill ${esc(st)}">${esc(label(st))}</span></div><ul class="events">${ev.join("")}</ul></li>`;
   }).join("")}</ol>`;
@@ -337,7 +338,7 @@ function renderRows() {
   if (!tasks.length) { $("rows").dataset.h = ""; $("rows").innerHTML = `<tr><td colspan="7" class="empty">No runners yet. Press <b>Load race meeting</b>.</td></tr>`; return; }
   const html = tasks.map(t => {
     const q = t.quote || {}, isOpen = open.has(t._id), exp = explanation(t);
-    const why = exp ? `<span class="why model">${esc(exp)}</span>` : `<span class="why">${esc(reasonList(t).join(" · "))}</span>`;
+    const why = t.status === "referred" ? `<span class="why">${esc(t.referral_reason || t.reason || "Sent to an underwriter")}</span>` : exp ? `<span class="why model">${esc(exp)}</span>` : `<span class="why">${esc(reasonList(t).join(" · "))}</span>`;
     const cancelBtn = !["cancelled", "cancelling", "not_eligible", "not_confirmed", "referred"].includes(t.status) ? ` <button data-cancel="${esc(t._id)}">Cancel</button>` : "";
     const ask = (t.status === "awaiting_owner" && !t.confirmation ? `<button data-call="${esc(t._id)}">📞 Call owner (simulated)</button> <button data-phone="${esc(t._id)}">☎️ Ring real phone</button> <button data-fit="${esc(t._id)}">Yes, fit</button> <button data-unfit="${esc(t._id)}">No</button>` : "") + cancelBtn;
     const row = `<tr class="task${isOpen ? " open" : ""}" data-id="${esc(t._id)}" tabindex="0" aria-expanded="${isOpen}">
@@ -345,7 +346,7 @@ function renderRows() {
       <td>${esc((t.race || {}).race_name)}<span class="hid" style="padding:0">${esc((t.race || {}).type)} · off ${clock((t.race || {}).off_dt)}</span></td>
       <td><span class="pill ${pillClass(t.status)}">${esc(label(t.status))}</span></td>
       <td class="num">${q.offerable ? money(q.sum_insured, q.currency) : ""}</td>
-      <td class="num">${q.offerable ? money(q.total, q.currency) : ""}</td>
+      <td class="num">${q.offerable && t.status !== "referred" ? money(q.total, q.currency) : ""}</td>
       <td>${why}</td><td>${ask}</td></tr>`;
     return row + (isOpen ? `<tr class="detailrow"><td colspan="7" class="detail">${detailHTML(t)}</td></tr>` : "");
   }).join("");
@@ -368,31 +369,47 @@ function normaliseTimeline(data) {
     const at = e.at || e.ts || e.time || e.created_at || e.updated_at;
     const who = e.horse || (tasks.find(t => t._id === e.task_id) || {}).horse;
     const d = e.detail && typeof e.detail === "object" ? e.detail : null;
-    const decided = e.kind === "outreach_decision" && d ? `Outreach: ${({call_now: "☎️ call the owner now", app_reminder: "📱 in-app reminder", wait: "⏳ wait"})[d.move] || d.move} · ${d.reason || ""}${d.refused ? " [code refused: " + d.refused + "]" : ""}` : e.kind === "investigate" && d ? `Investigated ${String(d.tool || "").replace(/^get_/, "").replace(/_/g, " ")}${d.why ? " · " + d.why : ""}` : e.kind === "agent_decision" && d ? `Model decided: ${label(d.move)} (${d.step} at ${d.system}) · ${d.reason || ""}${d.source === "template" ? " [fallback]" : ""}` : null;
-    const what = decided || e.message || e.text || e.summary || (d ? [label(e.kind), d.system, d.move || d.state || (d.mapping ? "fields mapped" : "")].filter(Boolean).join(": ") : e.detail) || [label(e.event || e.kind || e.type), e.step && label(e.step), e.state && label(e.state)].filter(Boolean).join(": ");
+    const decided = e.kind === "outreach_decision" && d ? `Outreach: ${({call_now: "☎️ call the owner now", app_reminder: "📱 in-app reminder", wait: "⏳ wait"})[d.move] || d.move} · ${d.reason || ""}${d.refused ? " [code refused: " + d.refused + "]" : ""}` : e.kind === "investigate" && d ? `Investigated ${String(d.tool || "").replace(/^get_/, "").replace(/_/g, " ")}${d.why ? " · " + d.why : ""}` : e.kind === "killed" ? "Agent KILLED" + (d && d.message ? " · " + d.message : "") : e.kind === "resume_after_crash" ? "Restarted: reading back before acting" + (d && d.message ? " · " + d.message : "") : e.kind === "recovered" ? `Recovered: ${STEPS[d && d.step] || label((d && d.step) || "step")} already done before the crash, not sent again` : e.kind === "agent_decision" && d ? `Model decided: ${label(d.move)} (${d.step} at ${d.system}) · ${d.reason || ""}${d.source === "template" ? " [fallback]" : ""}` : null;
+    const what = decided || e.message || e.text || e.summary || (d ? [label(e.kind), d.system, d.move || d.state || (d.mapping ? "fields mapped" : "")].filter(Boolean).join(": ").replace(/model mapping/i, "insurer renamed its fields; model proposed a mapping").replace(/mapping validated/i, "code validated the mapping").replace(/case found/i, "found a past fix with Atlas Vector Search") : e.detail) || [label(e.event || e.kind || e.type), e.step && label(e.step), e.state && label(e.state)].filter(Boolean).join(": ");
     const k = String(e.kind || e.event || e.type || e.state || "").toLowerCase();
     const cls = /kill|crash|lost|reject|mismatch|fail|error/.test(k) ? "bad" : /recover|resum|verified|found/.test(k) ? "good" : /retry|resend|re-send|refer/.test(k) ? "warn" : "";
     return { at, text: (who ? who + ": " : "") + what, cls };
   });
 }
 
+let timelineBusy = false, timelineSeq = 0, timelineRendered = 0;
 async function pollTimeline() {
+  if (timelineBusy) return;
   if (timelineOK === false && Date.now() < timelineRetryAt) return;
+  timelineBusy = true; const mySeq = ++timelineSeq;
   try {
     const r = await call("/timeline?task_id=");
+    if (mySeq < timelineRendered) return;
     if (r.status === 404) { timelineOK = false; timelineRetryAt = Date.now() + 20000; serverLog = []; return; }
-    if (r.ok) { timelineOK = true; serverLog = normaliseTimeline(r.data); }
+    if (r.ok) { timelineOK = true; timelineRendered = mySeq; serverLog = normaliseTimeline(r.data); }
   } catch (_) { timelineOK = false; timelineRetryAt = Date.now() + 20000; }
+  finally { timelineBusy = false; }
 }
 
+let refreshing = false, refreshSeq = 0, renderedSeq = 0;
 async function refresh() {
-  let board;
-  try { [board, tasks] = await Promise.all([get("/scoreboard"), get("/tasks")]); }
+  if (refreshing) return;  // one poll in flight at a time; the loop picks up the next
+  refreshing = true;
+  try { await refreshOnce(++refreshSeq); } finally { refreshing = false; }
+}
+async function refreshOnce(mySeq) {
+  let board, fresh;
+  try { [board, fresh] = await Promise.all([get("/scoreboard"), get("/tasks")]); }
   catch (e) { $("agent").className = "agent offline"; $("agentText").textContent = "API unreachable"; $("flash").textContent = "Cannot reach the API at " + API; return; }
 
+  if (mySeq < renderedSeq) return;  // stale response: never render backwards
+  renderedSeq = mySeq; tasks = fresh;
   // agent state
   const running = !!board.agent_running;
-  if (wasRunning === true && !running && !killedAt) note("Agent process stopped", "warn");
+  if (wasRunning === true && !running && !killedAt) {
+    if (armedKill) { killedAt = new Date().toISOString(); armedKill = false; note("Agent KILLED right after the charge", "bad", killedAt); }
+    else note("Agent process stopped", "warn");
+  }
   wasRunning = running;
   if (running) killedAt = null;
   $("agent").className = "agent " + (running ? "running" : killedAt ? "killed" : "");
@@ -420,7 +437,7 @@ async function refresh() {
   $("missed").className = "card missed " + (missed ? "some" : "zero");
   $("missed").querySelector("small").textContent = missed ? "Runner(s) left the stable part-way through, with no accounted outcome." : board.declared ? "Every declared runner is covered, referred, not confirmed, not eligible or still in hand." : "Load the race meeting to start.";
   const tiles = [["Declared", board.declared, ""], ["Covered", board.covered, "covered"], ["Referred", board.referred, "referred"],
-    ["Not confirmed", board.not_confirmed, ""], ["Not eligible", board.not_eligible, ""], ["In progress", board.in_progress, "progress"]];
+    ["Not confirmed", board.not_confirmed, ""], ["Not eligible", board.not_eligible, ""], ["Cancelled", board.cancelled, ""], ["In hand", board.in_progress, "progress"]];
   $("tiles").innerHTML = tiles.map(([k, v, c]) => `<div class="card tile ${c}"><b>${v ?? 0}</b><span>${k}</span></div>`).join("");
 
   // systems
@@ -441,14 +458,14 @@ async function refresh() {
 /* ---------- controls ---------- */
 const flash = t => { $("flash").textContent = t; };
 // Load and Reset lock the other step buttons until they finish, so a fast presenter cannot confirm before the runners exist.
-const LOCKING = new Set(["seed", "reset"]), STEP_IDS = ["seed", "confirmAll", "start", "reset"];
+const LOCKING = new Set(["seed", "reset", "demoStart"]), STEP_IDS = ["demoStart", "confirmButOne", "seed", "confirmAll", "start", "reset"];
 const act = (id, fn) => $(id).addEventListener("click", async () => {
   const lock = LOCKING.has(id) ? STEP_IDS : [id];
   lock.forEach(b => $(b).disabled = true);
-  if (LOCKING.has(id)) flash(id === "seed" ? "Loading the race meeting..." : "Resetting...");
+  if (LOCKING.has(id)) flash(id === "seed" ? "Loading the race meeting..." : id === "demoStart" ? "Pricing every horse… (~45 s)" : "Resetting...");
   try { await fn(); if (LOCKING.has(id)) flash(""); } catch (e) { flash("Request failed: " + e.message); } finally { lock.forEach(b => $(b).disabled = false); refresh(); }
 });
-act("seed", async () => { const r = await call("/control/seed", "POST"); note(r.ok ? `Race meeting loaded: ${r.data.runners ?? "?"} runners` : "Load failed"); });
+act("seed", async () => { localLog = []; const r = await call("/control/seed", "POST"); note(r.ok ? `Race meeting loaded: ${r.data.runners ?? "?"} runners` : "Load failed"); });
 act("start", async () => { const r = await call("/control/start", "POST"); killedAt = null; note(r.data && r.data.already_running ? "Agent already running" : "Agent started: reads its ledger back before doing anything", "good"); });
 act("kill", async () => {
   const r = await call("/control/kill", "POST");
@@ -457,7 +474,7 @@ act("kill", async () => {
 });
 act("killAfterCharge", async () => {
   const r = await call("/control/kill-after-charge", "POST");
-  if (r.ok) { note("Armed: the agent dies the moment its next charge goes through, before it hears back", "bad"); flash("Armed. The next charge will take the money, then the agent dies before issuing the policy."); }
+  if (r.ok) { armedKill = true; note("Armed: the agent dies the moment its next charge goes through, before it hears back", "bad"); flash("Armed. The next charge will take the money, then the agent dies before issuing the policy."); }
   else note("Could not arm the kill", "warn");
 });
 act("reset", async () => {
@@ -475,7 +492,7 @@ act("chaos", async () => {
   flash(r.ok ? `Armed: next ${system} request will ${what}.` : "Could not arm chaos.");
 });
 act("demoStart", async () => {
-  note("Demo start: resetting, loading and pricing every horse (about 30 s)…", "warn");
+  localLog = []; note("Demo start: resetting, loading and pricing every horse (about 45 s)…", "warn");
   const r = await call("/control/demo-start", "POST");
   if (r.ok && r.data) { open.clear(); actionsCache = {}; referrals = {}; lastStatus = {}; killedAt = null;
     note(`Ready in ${Math.round(r.data.seconds || 0)} s: ${(r.data.awaiting_owner || []).length} horses waiting for the owner`, "good"); }
@@ -493,10 +510,11 @@ act("confirmButOne", async () => {
   note(r.ok ? `Owners confirmed ${(r.data.confirmed || []).length} horses; Copper Lantern kept for the phone call` : "Confirm failed", r.ok ? "good" : "bad");
 });
 act("confirmAll", async () => {
-  const todo = tasks.filter(t => !t.confirmation && !DONE.has(t.status));
+  const latest = await get("/tasks");
+  const todo = (Array.isArray(latest) ? latest : []).filter(t => t.status === "awaiting_owner" && !t.confirmation);
   const res = await Promise.all(todo.map(t => call(`/tasks/${encodeURIComponent(t._id)}/confirm`, "POST", { fit: true })));
   const ok = res.filter(r => r.ok).length;
-  note(`Owners confirmed fit to run: ${ok} runner${ok === 1 ? "" : "s"}${res.length - ok ? `, ${res.length - ok} too late (left the stable)` : ""}`);
+  note(`Owners confirmed fit to run: ${ok} runner${ok === 1 ? "" : "s"}${res.length - ok ? `, ${res.length - ok} not open for confirmation` : ""}`);
 });
 
 function toggle(id) {
@@ -520,7 +538,9 @@ $("rows").addEventListener("click", async e => {
   }
   const phoneBtn = e.target.closest("[data-phone]");
   if (phoneBtn) {
-    e.stopPropagation(); phoneBtn.disabled = true; phoneBtn.textContent = "Ringing…";
+    e.stopPropagation();
+    if (!confirm("This rings a real phone. Continue?")) return;
+    phoneBtn.disabled = true; phoneBtn.textContent = "Ringing…";
     const r = await call(`/tasks/${encodeURIComponent(phoneBtn.dataset.phone)}/phone`, "POST");
     const who = (tasks.find(t => t._id === phoneBtn.dataset.phone) || {}).horse || "";
     if (r.ok) { note(`${who}: agent is phoning the owner; the spoken answer will update this row`, "warn"); phoneBtn.textContent = "☎️ On the call…"; }
@@ -537,9 +557,9 @@ $("rows").addEventListener("click", async e => {
     refresh(); return;
   }
   const unfit = e.target.closest("[data-unfit]");
-  if (unfit) { e.stopPropagation(); unfit.disabled = true; await call(`/tasks/${encodeURIComponent(unfit.dataset.unfit)}/confirm`, "POST", { fit: false, given_by: "owner (voice call)" }); refresh(); return; }
+  if (unfit) { e.stopPropagation(); unfit.disabled = true; await call(`/tasks/${encodeURIComponent(unfit.dataset.unfit)}/confirm`, "POST", { fit: false, given_by: "owner (demo console)" }); refresh(); return; }
   const fit = e.target.closest("[data-fit]");
-  if (fit) { e.stopPropagation(); fit.disabled = true; await call(`/tasks/${encodeURIComponent(fit.dataset.fit)}/confirm`, "POST", { fit: true, given_by: "owner (voice call)" }); refresh(); return; }
+  if (fit) { e.stopPropagation(); fit.disabled = true; await call(`/tasks/${encodeURIComponent(fit.dataset.fit)}/confirm`, "POST", { fit: true, given_by: "owner (demo console)" }); refresh(); return; }
   if (e.target.closest(".detailrow")) return;
   const tr = e.target.closest("tr.task"); if (tr) toggle(tr.dataset.id);
 });
@@ -548,7 +568,7 @@ $("rows").addEventListener("keydown", e => {
   if (tr && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); toggle(tr.dataset.id); const again = document.querySelector(`tr.task[data-id="${CSS.escape(tr.dataset.id)}"]`); if (again) again.focus(); }
 });
 
-refresh(); setInterval(refresh, 1500);
+(async function loop() { await refresh(); setTimeout(loop, 1500); })();
 </script>
 </body>
 </html>
