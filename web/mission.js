@@ -115,16 +115,18 @@ function stepperState(task, actions, events) {
   out.investigate = inv ? {s:"done", note:`${(inv.trail || []).length} checks chosen by the model${inv.source === "template" ? " (fallback)" : ""}`}
     : invSteps ? {s:"active", note:`${invSteps} checks so far…`} : {s: st === "new" ? "active" : "pending", note:"Choosing what to check"};
   if (st === "not_eligible") out.price = {s:"issue", note: task.reason || "Not eligible"};
+  else if (st === "referred" && q.over_limit) out.price = {s:"issue", note:`Over the insurer's limit (${money(q.sum_insured, q.currency)}): sent to an underwriter, no charge`};
   else out.price = q.offerable ? {s:"done", note:`${money(q.total, q.currency)} · ${(q.risk_factors || []).length ? (q.risk_factors || []).map(f => f.evidence).join(", ") : "standard risk"}`} : {s: inv ? "active" : "pending", note:"Code applies the insurer's rules"};
   const outreach = [...ev].reverse().find(e => e.kind === "outreach_decision"), phoned = ev.some(e => e.kind === "owner_phoned");
-  if (st === "referred") out.owner = {s:"issue", note: task.referral_reason || "Referred to an underwriter"};
+  if (st === "referred" && q.over_limit) out.owner = {s:"skipped", note:"Not asked: the case went to an underwriter"};
+  else if (st === "referred") out.owner = {s:"issue", note: task.referral_reason || "Referred to an underwriter"};
   else if (st === "not_confirmed") out.owner = {s:"issue", note:"No answer before the horse left: no charge"};
   else if (task?.owner_declaration || task?.confirmation) { const declaration = task.owner_declaration || task.confirmation; out.owner = {s:"done", note:`${declaration.fit ? "Fit to run" : "Not fit"} · ${declaration.given_by || "owner"}`}; }
   else if (st === "awaiting_owner") out.owner = {s:"active", note: phoned ? "Agent is on the phone with the owner…" : outreach ? `Agent chose: ${({call_now:"call now", app_reminder:"in-app reminder", wait:"wait"})[outreach.detail?.move] || outreach.detail?.move}${outreach.detail?.refused ? " (code: " + outreach.detail.refused + ")" : ""}` : "Waiting for the owner"};
   else out.owner = {s:"pending", note:"Asked once per race"};
   for (const k of ["charge","issue","report","notify"]) {
     const a = act[k];
-    if (!a) { out[k] = {s:"pending", note:"Intent saved, sent with an operation ID, read back"}; continue; }
+    if (!a) { out[k] = {s:"pending", note:"Will save intent, send with one ID, then read back"}; continue; }
     const tries = a.attempts > 1 ? ` · sent ${a.attempts}× with the same ID` : "";
     out[k] = a.state === "verified" ? {s:"done", note:`Verified by read-back${tries}`}
       : ["mismatched","unable_to_determine","not_found"].includes(a.state) ? {s:"issue", note:`${title(a.state)}${tries}`}
@@ -189,7 +191,7 @@ function renderActivity(events, task) {
   const rows = [];
   for (const event of list) {
     const v = describe(event);
-    const key = `${event.kind}|${v.name}|${v.reason || ""}`;
+    const key = event.kind === "investigate" ? `investigate|${(event.detail || {}).tool}` : `${event.kind}|${v.name}|${v.reason || ""}`;
     if (seenKeys.has(key)) continue;  // the same step saved twice (e.g. a horse priced by two threads) shows once
     seenKeys.add(key);
     rows.push({key, v, event});
