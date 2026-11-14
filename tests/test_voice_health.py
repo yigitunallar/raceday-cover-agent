@@ -58,3 +58,18 @@ def test_unknown_health_is_saved_but_does_not_confirm(monkeypatch):
     assert fields['status'] == 'health_unresolved'
     assert 'confirmation' not in fields
     assert not result['ok']
+
+
+def test_not_fit_answer_does_not_require_missing_health(monkeypatch):
+    monkeypatch.setattr(api.config, 'VOICE_WEBHOOK_SECRET', 'secret')
+    db = MagicMock()
+    collections = {name: MagicMock() for name in (api.dbm.TASKS, api.dbm.TIMELINE)}
+    db.__getitem__.side_effect = collections.__getitem__
+    db[api.dbm.TASKS].find_one.return_value = {'_id':'t1', 'voice_health_required':True}
+    db[api.dbm.TASKS].update_one.return_value.matched_count = 1
+    monkeypatch.setattr(api.dbm, 'db', lambda: db)
+    db[api.dbm.TIMELINE].find_one.return_value = {'task_id':'t1'}
+    result = api.voice_answer(api.VoiceAnswer(task_id='t1', answer='no', conversation_id='conv1'), 'secret')
+    fields = db[api.dbm.TASKS].update_one.call_args.args[1]['$set']
+    assert result['ok']
+    assert fields['confirmation']['fit'] is False

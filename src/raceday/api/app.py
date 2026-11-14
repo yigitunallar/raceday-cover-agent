@@ -242,7 +242,7 @@ def voice_answer(body: VoiceAnswer, x_webhook_secret: str = Header(default="")):
     notes = (body.health_notes or "").strip()
     if len(notes) > 2000:
         raise HTTPException(422, "health notes are too long")
-    if task.get("voice_health_required") and not notes:
+    if task.get("voice_health_required") and body.answer == "yes" and not notes:
         raise HTTPException(409, "Ask for the missing health information before recording the answer")
     if (task.get("voice_health_required") or notes) and (not body.conversation_id or not d[dbm.TIMELINE].find_one(
             {"task_id": body.task_id, "kind": "owner_phoned", "detail.conversation_id": body.conversation_id})):
@@ -254,7 +254,7 @@ def voice_answer(body: VoiceAnswer, x_webhook_secret: str = Header(default="")):
         fields.update(owner_health_followup={"notes": notes, "resolved": body.health_resolved,
                                               "conversation_id": body.conversation_id, "at": now},
                       investigation=None, quote=None)
-    if task.get("voice_health_required") and not body.health_resolved:
+    if task.get("voice_health_required") and body.answer == "yes" and not body.health_resolved:
         fields.pop("confirmation")
         fields.update(status="health_unresolved", reason="Owner could not resolve missing health information")
     result = d[dbm.TASKS].update_one(
@@ -266,7 +266,7 @@ def voice_answer(body: VoiceAnswer, x_webhook_secret: str = Header(default="")):
                                               "health_followup_saved": bool(notes)}, "duration_ms": None})
     if not result.matched_count:
         return {"ok": False, "message": "Thanks. That answer could not be recorded: already answered or too late."}
-    if task.get("voice_health_required") and not body.health_resolved:
+    if task.get("voice_health_required") and body.answer == "yes" and not body.health_resolved:
         return {"ok": False, "message": "The health information is still incomplete, so the task is paused."}
     return {"ok": True, "message": "Thank you, the answer is recorded."}
 

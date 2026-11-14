@@ -51,13 +51,13 @@ function renderTask(task) {
   const race=task.race || {}, quote=task.quote || {}, status=task.status || "unknown";
   const declaration = task.owner_declaration || task.confirmation;
   const notFit = declaration?.fit === false;
-  const issue = notFit || ["blocked","referred","not_eligible","not_confirmed","quote_unverified"].includes(status);
+  const issue = notFit || ["blocked","referred","not_eligible","not_confirmed","health_unresolved","quote_unverified"].includes(status);
   document.querySelector(".quote-card").classList.toggle("issue", issue);
   setText("horseName", task.horse || "Unnamed horse");
   setText("raceName", [race.race_name, race.race_status ? title(race.race_status) : ""].filter(Boolean).join("  ·  "));
   setText("taskShort", task.horse_id || "UNKNOWN HORSE"); setText("taskIdLabel", task._id);
   setText("taskState", notFit && status === "awaiting_owner" ? "NOT FIT · PROCESSING" : title(status).toUpperCase());
-  const done = ["covered","quoted","not_eligible","not_confirmed","referred","blocked","quote_unverified","cancelled"].includes(status);
+  const done = ["covered","quoted","not_eligible","not_confirmed","health_unresolved","referred","blocked","quote_unverified","cancelled"].includes(status);
   setText("runHeadline", notFit && status === "awaiting_owner" ? "Owner reported not fit" : `Task: ${title(status)}`);
   setText("runDescription", done ? "Latest status saved by the backend." : workerRunning ? "Agent running · waiting for updates." : "Agent stopped · saved state retained.");
   $("progressRing").className = "progress-ring" + (issue ? " issue" : ["covered","quoted"].includes(status) ? " complete" : done ? " stopped" : workerRunning ? " active" : "");
@@ -65,7 +65,8 @@ function renderTask(task) {
   setText("raceType", race.type || "—"); setText("rating", task.runner?.ofr || "—");
   setText("share", task.ownership_share == null ? "—" : `${Math.round(Number(task.ownership_share)*100)}%`);
   setText("deadline", clock(task.deadline));
-  const finalLabel = notFit && status === "awaiting_owner" ? "OWNER REPORTED NOT FIT · AWAITING PROCESSING"
+  const finalLabel = status === "health_unresolved" ? "HEALTH INFORMATION INCOMPLETE · PAUSED"
+    : notFit && status === "awaiting_owner" ? "OWNER REPORTED NOT FIT · AWAITING PROCESSING"
     : status === "referred" ? "Referred to an underwriter · no charge"
     : status === "not_confirmed" ? "No answer before the horse left · no charge"
     : status === "not_eligible" ? `Not eligible: ${plainReason(task.reason || quote.reason || "does not meet the insurer's rules")}`
@@ -124,6 +125,7 @@ function stepperState(task, actions, events) {
   const outreach = [...ev].reverse().find(e => e.kind === "outreach_decision"), phoned = ev.some(e => e.kind === "owner_phoned");
   if (st === "referred" && q.over_limit) out.owner = {s:"skipped", note:"Not asked: the case went to an underwriter"};
   else if (st === "referred") out.owner = {s:"issue", note: task.referral_reason || "Referred to an underwriter"};
+  else if (st === "health_unresolved") out.owner = {s:"issue", note:"Health details still missing; task paused"};
   else if (st === "not_confirmed") out.owner = {s:"issue", note:"No answer before the horse left: no charge"};
   else if (task?.owner_declaration || task?.confirmation) { const declaration = task.owner_declaration || task.confirmation; out.owner = {s:declaration.fit === false ? "issue" : "done", note:`${declaration.fit ? "Fit to run" : "Not fit"} · ${declaration.given_by || "owner"}`}; }
   else if (st === "awaiting_owner") out.owner = {s:"active", note: phoned ? "Agent is on the phone with the owner…" : outreach ? `Agent chose: ${({call_now:"call now", app_reminder:"in-app reminder", wait:"wait"})[outreach.detail?.move] || outreach.detail?.move}${outreach.detail?.refused ? " (code: " + outreach.detail.refused + ")" : ""}` : "Waiting for the owner"};
@@ -140,7 +142,7 @@ function stepperState(task, actions, events) {
   // only one "active" at a time: the first not-done step
   let seenActive = false;
   for (const s of STEPS) { const o = out[s.key]; if (o.s === "active") { if (seenActive) o.s = "pending"; seenActive = true; } }
-  if (["referred","not_confirmed","not_eligible"].includes(st) || (task?.owner_declaration || task?.confirmation)?.fit === false) for (const s of STEPS.slice(3)) if (out[s.key].s === "pending") out[s.key] = {s:"skipped", note:"Not needed: no money moves"};
+  if (["referred","not_confirmed","not_eligible","health_unresolved"].includes(st) || (task?.owner_declaration || task?.confirmation)?.fit === false) for (const s of STEPS.slice(3)) if (out[s.key].s === "pending") out[s.key] = {s:"skipped", note:"Not needed: no money moves"};
   return out;
 }
 function renderStepper(task, actions, events) {
