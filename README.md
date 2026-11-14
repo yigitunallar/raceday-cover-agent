@@ -8,6 +8,8 @@ This agent takes a standing instruction, "cover my runners", and finishes the jo
 
 All data in this repo is invented. No real insurer, horse, owner, price or limit appears here.
 
+The current Python planning draft proposes a narrower first slice: assess one horse and save a starting-gate quote. Payment and policy actions remain part of the broader demo architecture and are deferred in that draft for review.
+
 ## How it works
 
 - **The model decides what to do next. Code decides whether it is allowed and whether it worked.**
@@ -62,9 +64,12 @@ PYTHONPATH=src .venv/bin/python -m pytest -q tests
 - No real insurer names, prices, limits or policy wording. Every number is invented.
 - No production data and no licensed racing-feed data.
 
-## Earlier design drafts
+## Design documents
 
-Krish's drafts from Nov 13. They planned TypeScript; the team has since chosen Python. Where they differ from [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), the architecture doc is current.
+- [Full demo architecture](docs/ARCHITECTURE.md)
+- [Current Python quote-first LLD review draft](docs/superpowers/specs/2026-11-14-raceday-cover-agent-python-lld.md)
+- [Hackathon and Track 3 context](design-plans/toronto-agents-in-context-track-3-context.md)
+- [Original high-level design](docs/superpowers/specs/2026-11-13-insurance-claim-agent-design.md)
+- [Earlier low-level draft](docs/superpowers/specs/2026-11-13-raceday-cover-agent-lld.md) (superseded by the current Python review draft)
 
-- [High-level design](docs/superpowers/specs/2026-11-13-insurance-claim-agent-design.md)
-- [Low-level design](docs/superpowers/specs/2026-11-13-raceday-cover-agent-lld.md)
+The quote-first LLD is a planning proposal for review and has not been reconciled with the full workflow in the existing architecture and scaffold. Review that scope difference before changing implementation.
