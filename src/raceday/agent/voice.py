@@ -43,3 +43,38 @@ def speak(text: str) -> bytes:
 def log_call(task_id: str, text: str) -> None:
     dbm.db()[dbm.TIMELINE].insert_one({"task_id": task_id, "at": datetime.now(timezone.utc), "kind": "owner_called",
                                        "detail": {"system": "voice", "script": text}, "duration_ms": None})
+
+
+def phone_variables(task: dict[str, Any]) -> dict[str, Any]:
+    """What the phone agent is told about this horse. Everything comes from code-computed facts."""
+    q = task.get("quote") or {}
+    return {
+        "task_id": task["_id"], "horse": task.get("horse", "your horse"),
+        "race": (task.get("race") or {}).get("race_name", "the race"),
+        "cover": f"{q.get('sum_insured', 0):,.0f} euros" if q.get("offerable") else "not yet priced",
+        "price": f"{q.get('total', 0):,.2f} euros including tax" if q.get("offerable") else "not yet priced",
+        "reasons": " and ".join(f["evidence"] for f in q.get("risk_factors", [])[:2]) or "no extra risk factors",
+        "exclusions": ", ".join(q.get("exclusions", [])) or "none",
+    }
+
+
+def place_call(task: dict[str, Any]) -> dict[str, Any]:
+    """Ring the owner (in the demo: one real teammate phone) through ElevenLabs and Twilio."""
+    missing = [n for n, v in [("ELEVENLABS_AGENT_ID", config.ELEVENLABS_AGENT_ID),
+                              ("ELEVENLABS_PHONE_NUMBER_ID", config.ELEVENLABS_PHONE_NUMBER_ID),
+                              ("DEMO_OWNER_PHONE", config.DEMO_OWNER_PHONE)] if not v]
+    if missing:
+        raise RuntimeError(f"phone calling not configured: {missing}")
+    r = httpx.post("https://api.elevenlabs.io/v1/convai/twilio/outbound-call",
+                   headers={"xi-api-key": config.ELEVENLABS_API_KEY},
+                   json={"agent_id": config.ELEVENLABS_AGENT_ID,
+                         "agent_phone_number_id": config.ELEVENLABS_PHONE_NUMBER_ID,
+                         "to_number": config.DEMO_OWNER_PHONE,
+                         "conversation_initiation_client_data": {"dynamic_variables": phone_variables(task)}},
+                   timeout=30)
+    r.raise_for_status()
+    out = r.json()
+    dbm.db()[dbm.TIMELINE].insert_one({"task_id": task["_id"], "at": datetime.now(timezone.utc), "kind": "owner_phoned",
+                                       "detail": {"system": "voice", "conversation_id": out.get("conversation_id")},
+                                       "duration_ms": None})
+    return out

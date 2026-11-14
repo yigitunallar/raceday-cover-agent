@@ -15,3 +15,9 @@ MODEL = os.environ.get("MODEL", "claude-sonnet-5-5")
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 ELEVENLABS_API_KEY = os.environ.get("ELEVENLABS_API_KEY", "")
 ELEVENLABS_VOICE = os.environ.get("ELEVENLABS_VOICE", "JBFqnCBsd6RMkjVDRZzb")  # a warm British male voice
+# Real phone call (ElevenLabs agent over a Twilio number). See scripts/setup_phone_agent.py.
+ELEVENLABS_AGENT_ID = os.environ.get("ELEVENLABS_AGENT_ID", "")
+ELEVENLABS_PHONE_NUMBER_ID = os.environ.get("ELEVENLABS_PHONE_NUMBER_ID", "")
+VOICE_WEBHOOK_SECRET = os.environ.get("VOICE_WEBHOOK_SECRET", "")
+DEMO_OWNER_PHONE = os.environ.get("DEMO_OWNER_PHONE", "")  # every invented owner rings this one real phone
+PUBLIC_API_URL = os.environ.get("PUBLIC_API_URL", "https://raceday-cover-agent.onrender.com")

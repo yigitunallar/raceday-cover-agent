@@ -334,7 +334,7 @@ function renderRows() {
   const html = tasks.map(t => {
     const q = t.quote || {}, isOpen = open.has(t._id), exp = explanation(t);
     const why = exp ? `<span class="why model">${esc(exp)}</span>` : `<span class="why">${esc(reasonList(t).join(" · "))}</span>`;
-    const ask = t.status === "awaiting_owner" && !t.confirmation ? `<button data-call="${esc(t._id)}">📞 Call owner (simulated)</button> <button data-fit="${esc(t._id)}">Yes, fit</button> <button data-unfit="${esc(t._id)}">No</button>` : "";
+    const ask = t.status === "awaiting_owner" && !t.confirmation ? `<button data-call="${esc(t._id)}">📞 Call owner (simulated)</button> <button data-phone="${esc(t._id)}">☎️ Ring real phone</button> <button data-fit="${esc(t._id)}">Yes, fit</button> <button data-unfit="${esc(t._id)}">No</button>` : "";
     const row = `<tr class="task${isOpen ? " open" : ""}" data-id="${esc(t._id)}" tabindex="0" aria-expanded="${isOpen}">
       <td><span class="caret">&#9656;</span><b>${esc(t.horse)}</b><span class="hid">${esc(t.horse_id)}</span></td>
       <td>${esc((t.race || {}).race_name)}<span class="hid" style="padding:0">${esc((t.race || {}).type)} · off ${clock((t.race || {}).off_dt)}</span></td>
@@ -493,6 +493,15 @@ $("rows").addEventListener("click", async e => {
       callBtn.textContent = "🔊 Speaking…"; await audio.play();
       audio.onended = () => { callBtn.textContent = "📞 Call again (simulated)"; callBtn.disabled = false; };
     } catch (err) { callBtn.textContent = "Call failed"; callBtn.disabled = false; note("Voice call failed: " + err.message, "bad"); }
+    return;
+  }
+  const phoneBtn = e.target.closest("[data-phone]");
+  if (phoneBtn) {
+    e.stopPropagation(); phoneBtn.disabled = true; phoneBtn.textContent = "Ringing…";
+    const r = await call(`/tasks/${encodeURIComponent(phoneBtn.dataset.phone)}/phone`, "POST");
+    const who = (tasks.find(t => t._id === phoneBtn.dataset.phone) || {}).horse || "";
+    if (r.ok) { note(`${who}: agent is phoning the owner; the spoken answer will update this row`, "warn"); phoneBtn.textContent = "☎️ On the call…"; }
+    else { phoneBtn.textContent = "Call failed"; phoneBtn.disabled = false; note("Phone call failed: " + ((r.data && r.data.detail) || "unknown"), "bad"); }
     return;
   }
   const unfit = e.target.closest("[data-unfit]");

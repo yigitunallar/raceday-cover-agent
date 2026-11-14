@@ -11,10 +11,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, HTTPException, Response
+from fastapi import FastAPI, Header, HTTPException, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
+from .. import config
 from .. import db as dbm
 from .. import seed as seed_module
 from ..agent import voice
@@ -174,4 +175,44 @@ def call_owner(task_id: str):
         raise HTTPException(502, f"voice unavailable: {e}") from e
     voice.log_call(task_id, text)
     return Response(content=audio, media_type="audio/mpeg", headers={"X-Call-Script": text.encode("ascii", "ignore").decode()})
+
+
+@app.post("/tasks/{task_id}/phone")
+def phone_owner(task_id: str):
+    """Ring the owner for real (ElevenLabs agent over Twilio). Their spoken answer arrives at /voice/answer."""
+    task = dbm.db()[dbm.TASKS].find_one({"_id": task_id})
+    if not task:
+        raise HTTPException(404, "unknown task")
+    if task.get("confirmation"):
+        raise HTTPException(409, "the owner has already answered")
+    try:
+        out = voice.place_call(task)
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(502, f"call failed: {e}") from e
+    return {"ok": True, "conversation_id": out.get("conversation_id"), "call_sid": out.get("callSid")}
+
+
+class VoiceAnswer(BaseModel):
+    task_id: str
+    answer: str  # "yes" or "no", as the phone agent heard it
+    conversation_id: str | None = None
+
+
+@app.post("/voice/answer")
+def voice_answer(body: VoiceAnswer, x_webhook_secret: str = Header(default="")):
+    """Called by the ElevenLabs phone agent's tool once the owner clearly says yes or no."""
+    if not config.VOICE_WEBHOOK_SECRET or x_webhook_secret != config.VOICE_WEBHOOK_SECRET:
+        raise HTTPException(401, "bad secret")
+    if body.answer not in ("yes", "no"):
+        raise HTTPException(400, "answer must be yes or no; an unclear answer is no answer")
+    result = dbm.db()[dbm.TASKS].update_one(
+        {"_id": body.task_id, "confirmation": None, "deadline": {"$gt": datetime.now(timezone.utc)}},
+        {"$set": {"confirmation": {"fit": body.answer == "yes", "given_by": "owner (phone call)",
+                                   "conversation_id": body.conversation_id, "at": datetime.now(timezone.utc)}}})
+    dbm.db()[dbm.TIMELINE].insert_one({"task_id": body.task_id, "at": datetime.now(timezone.utc), "kind": "owner_answered",
+                                       "detail": {"system": "voice", "answer": body.answer,
+                                                  "conversation_id": body.conversation_id}, "duration_ms": None})
+    if not result.matched_count:
+        return {"ok": False, "message": "Thanks. That answer could not be recorded: already answered or too late."}
+    return {"ok": True, "message": "Thank you, the answer is recorded."}
 
