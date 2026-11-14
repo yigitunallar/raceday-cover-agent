@@ -268,13 +268,16 @@ $("killAfterCharge").addEventListener("click", async () => {
     notice("Armed: the agent will be killed the instant it takes the next payment, before it hears back."); }
   catch (error) { notice(error.message, true); }
 });
-$("ringPhone").addEventListener("click", async () => {
+let agentContactOn = false;
+$("agentContact").addEventListener("click", async () => {
   const task = tasks.find(t => t._id === selectedId); if (!task) return;
-  if (!confirm(`This rings a real phone to ask whether ${task.horse} is fit to run. Continue?`)) return;
-  $("ringPhone").disabled = true;
-  try { await request(`/tasks/${encodeURIComponent(task._id)}/phone`, "POST", {}); notice(`Calling the owner about ${task.horse}… answer, press any key, then reply.`); }
-  catch (error) { notice(`Call failed: ${error.message}`, true); }
-  finally { setTimeout(() => { $("ringPhone").disabled = false; }, 15000); }
+  const on = !agentContactOn;
+  try {
+    await request(`/control/auto-call?on=${on}&only_task_id=${encodeURIComponent(task._id)}`, "POST", {});
+    agentContactOn = on;
+    $("agentContact").textContent = on ? "🤖 Agent may contact the owner: ON" : "🤖 Let the agent contact the owner";
+    notice(on ? `Handed to the agent: it now decides how to reach ${task.horse}'s owner (call, reminder or wait). It may ring a real phone.` : "Agent contact switched off.");
+  } catch (error) { notice(error.message, true); }
 });
 function renderProof(task, actions, board) {
   if (!task || !board) { setHtml("proofLine", ""); return; }

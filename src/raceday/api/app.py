@@ -371,11 +371,16 @@ def cancel_task(task_id: str):
 
 
 @app.post("/control/auto-call")
-def control_auto_call(on: bool):
-    """The switch for agent-initiated phone calls (off by default, so tests never ring the demo phone)."""
+def control_auto_call(on: bool, only_task_id: str | None = None):
+    """The switch for agent-initiated phone calls (off by default, so tests never ring the demo phone).
+
+    With only_task_id, the agent may contact the owner of that one horse only.
+    """
     from ..agent import outreach
     outreach.set_auto_calls(on)
-    return {"ok": True, "auto_call": outreach.auto_calls_on()}
+    dbm.db()[outreach.SETTINGS].update_one({"_id": "outreach"}, {"$set": {"only_task_id": only_task_id if on else None}},
+                                           upsert=True)
+    return {"ok": True, "auto_call": outreach.auto_calls_on(), "only_task_id": only_task_id if on else None}
 
 
 @app.get("/control/auto-call")
