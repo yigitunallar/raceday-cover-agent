@@ -5,101 +5,475 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Raceday Cover Agent</title>
 <style>
-  :root { --bg:#f6f5f1; --card:#fff; --ink:#1c1b19; --mute:#6b6862; --line:#e3e0d8; --ok:#1f7a4d; --warn:#a15c00; --bad:#b3261e; --accent:#1d4ed8; }
-  @media (prefers-color-scheme: dark) { :root { --bg:#151412; --card:#1f1e1b; --ink:#f1efe9; --mute:#a09c93; --line:#34322d; --ok:#5fd39a; --warn:#f0b35a; --bad:#ff8a80; --accent:#8fb0ff; } }
-  * { box-sizing: border-box; }
-  body { margin:0; background:var(--bg); color:var(--ink); font:15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
-  main { max-width:1100px; margin:0 auto; padding:20px 16px 60px; }
-  h1 { font-size:22px; margin:0 0 2px; } h2 { font-size:15px; margin:26px 0 8px; color:var(--mute); font-weight:600; text-transform:uppercase; letter-spacing:.04em; }
-  .sub { color:var(--mute); margin:0 0 16px; }
-  .row { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
-  button { font:inherit; padding:8px 14px; border-radius:8px; border:1px solid var(--line); background:var(--card); color:var(--ink); cursor:pointer; }
-  button.primary { background:var(--accent); border-color:var(--accent); color:#fff; }
-  button.danger { background:var(--bad); border-color:var(--bad); color:#fff; }
+  :root {
+    --bg:#f5f4ef; --card:#ffffff; --card2:#faf9f6; --ink:#1b1a17; --mute:#67645d; --line:#e2dfd6;
+    --ok:#17794a; --ok-bg:#e6f4ec; --warn:#9a5800; --warn-bg:#fbf0dd; --bad:#b3261e; --bad-bg:#fbe7e5;
+    --accent:#1d4ed8; --accent-bg:#e7eefe; --kill:#c62828; --kill-ink:#ffffff; --shadow:0 1px 2px rgba(0,0,0,.05);
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg:#131210; --card:#1d1c19; --card2:#191815; --ink:#f2f0ea; --mute:#a29e95; --line:#34322d;
+      --ok:#5fd39a; --ok-bg:#16301f; --warn:#f2b55c; --warn-bg:#33270f; --bad:#ff8a80; --bad-bg:#3a1a17;
+      --accent:#8fb0ff; --accent-bg:#1a2541; --kill:#e53935; --kill-ink:#ffffff; --shadow:none;
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg:#131210; --card:#1d1c19; --card2:#191815; --ink:#f2f0ea; --mute:#a29e95; --line:#34322d;
+    --ok:#5fd39a; --ok-bg:#16301f; --warn:#f2b55c; --warn-bg:#33270f; --bad:#ff8a80; --bad-bg:#3a1a17;
+    --accent:#8fb0ff; --accent-bg:#1a2541; --kill:#e53935; --kill-ink:#ffffff; --shadow:none;
+    color-scheme: dark;
+  }
+  * { box-sizing:border-box; }
+  html, body { overflow-x:hidden; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  main { max-width:1180px; margin:0 auto; padding:20px 16px 64px; }
+  h1 { font-size:24px; margin:0; letter-spacing:-.01em; }
+  h2 { font-size:13px; margin:28px 0 10px; color:var(--mute); font-weight:650; text-transform:uppercase; letter-spacing:.06em; }
+  h3 { font-size:13px; margin:0 0 8px; color:var(--mute); font-weight:650; text-transform:uppercase; letter-spacing:.05em; }
+  .sub { color:var(--mute); margin:4px 0 0; max-width:62ch; }
+  .head { display:flex; flex-wrap:wrap; gap:12px 20px; align-items:flex-start; justify-content:space-between; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; box-shadow:var(--shadow); }
+  .num { font-variant-numeric:tabular-nums; white-space:nowrap; }
+  .mute { color:var(--mute); } .small { font-size:13px; }
+  code, .mono { font-family:ui-monospace, SFMono-Regular, Menlo, monospace; font-size:12px; }
+
+  /* agent state */
+  .agent { display:inline-flex; align-items:center; gap:10px; padding:8px 14px; border-radius:99px; font-weight:650; border:1px solid var(--line); background:var(--card); white-space:nowrap; }
+  .dot { width:11px; height:11px; border-radius:50%; background:var(--mute); }
+  .agent.running { color:var(--ok); border-color:var(--ok); background:var(--ok-bg); }
+  .agent.running .dot { background:var(--ok); animation:pulse 1.2s infinite; }
+  .agent.killed { color:var(--bad); border-color:var(--bad); background:var(--bad-bg); }
+  .agent.killed .dot { background:var(--bad); }
+  .agent.offline { color:var(--warn); border-color:var(--warn); background:var(--warn-bg); }
+  @keyframes pulse { 50% { opacity:.3; } }
+  @media (prefers-reduced-motion: reduce) { .agent.running .dot, .pill.moving::before { animation:none; } }
+
+  /* scoreboard */
+  .board { display:grid; grid-template-columns:minmax(200px, 1fr) 3fr; gap:12px; }
+  .missed { padding:18px 20px; display:flex; flex-direction:column; justify-content:center; border-width:2px; }
+  .missed b { font-size:64px; line-height:1; font-variant-numeric:tabular-nums; }
+  .missed span { font-size:15px; font-weight:650; text-transform:uppercase; letter-spacing:.06em; }
+  .missed small { color:var(--mute); margin-top:6px; font-size:13px; }
+  .missed.zero { border-color:var(--ok); background:var(--ok-bg); color:var(--ok); }
+  .missed.some { border-color:var(--bad); background:var(--bad-bg); color:var(--bad); }
+  .tiles { display:grid; grid-template-columns:repeat(3, 1fr); gap:12px; }
+  .tile { padding:12px 14px; }
+  .tile b { display:block; font-size:36px; line-height:1.1; font-variant-numeric:tabular-nums; }
+  .tile span { color:var(--mute); font-size:13px; font-weight:600; }
+  .tile.covered b { color:var(--ok); } .tile.referred b { color:var(--warn); }
+  .tile.progress b { color:var(--accent); }
+
+  /* systems + log */
+  .split { display:grid; grid-template-columns:1fr 1fr; gap:12px; align-items:start; }
+  .systems { display:grid; grid-template-columns:repeat(2, 1fr); gap:12px; }
+  .sys { padding:12px 14px; }
+  .sys .name { font-weight:650; text-transform:capitalize; }
+  .sys .dup { display:flex; align-items:baseline; gap:6px; font-weight:700; margin:2px 0; }
+  .sys .dup b { font-size:34px; line-height:1.1; font-variant-numeric:tabular-nums; }
+  .sys .dup em { font-style:normal; font-size:15px; }
+  .sys.clean .dup { color:var(--ok); } .sys.dirty { border-color:var(--bad); } .sys.dirty .dup { color:var(--bad); }
+  .proof { margin:10px 2px 0; font-size:13px; color:var(--mute); }
+  .log { padding:12px 14px; height:100%; min-height:180px; display:flex; flex-direction:column; }
+  .log ol { list-style:none; margin:0; padding:0; overflow-y:auto; max-height:236px; font-size:13px; }
+  .log li { display:grid; grid-template-columns:auto 1fr; gap:10px; padding:4px 0; border-bottom:1px dashed var(--line); }
+  .log li:last-child { border-bottom:0; }
+  .log time { color:var(--mute); font-variant-numeric:tabular-nums; }
+  .log .bad { color:var(--bad); font-weight:600; } .log .good { color:var(--ok); } .log .warn { color:var(--warn); }
+
+  /* controls */
+  .controls { padding:14px; display:grid; grid-template-columns:1fr auto; gap:14px 18px; align-items:center; }
+  .steps { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+  button, select { font:inherit; border-radius:9px; border:1px solid var(--line); background:var(--card); color:var(--ink); }
+  button { padding:9px 14px; cursor:pointer; font-weight:600; }
+  button:hover:not(:disabled) { border-color:var(--mute); }
+  button:focus-visible, select:focus-visible, tr.task:focus-visible { outline:3px solid var(--accent); outline-offset:2px; }
   button:disabled { opacity:.5; cursor:default; }
-  .tiles { display:grid; grid-template-columns:repeat(auto-fit, minmax(130px, 1fr)); gap:10px; }
-  .tile { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:12px; }
-  .tile b { display:block; font-size:26px; font-variant-numeric:tabular-nums; } .tile span { color:var(--mute); font-size:13px; }
-  .wrap { overflow-x:auto; background:var(--card); border:1px solid var(--line); border-radius:10px; }
-  table { border-collapse:collapse; width:100%; min-width:720px; } th, td { text-align:left; padding:9px 12px; border-bottom:1px solid var(--line); vertical-align:top; }
-  th { font-size:12px; color:var(--mute); text-transform:uppercase; letter-spacing:.04em; } tr:last-child td { border-bottom:0; }
-  .pill { display:inline-block; padding:2px 9px; border-radius:99px; font-size:12px; border:1px solid var(--line); }
-  .covered { color:var(--ok); border-color:var(--ok); } .referred, .awaiting_owner { color:var(--warn); border-color:var(--warn); } .blocked, .not_confirmed { color:var(--bad); border-color:var(--bad); }
-  .why { color:var(--mute); font-size:13px; } .num { font-variant-numeric:tabular-nums; white-space:nowrap; }
-  #state { font-size:13px; color:var(--mute); } select, input { font:inherit; padding:7px 8px; border-radius:8px; border:1px solid var(--line); background:var(--card); color:var(--ink); }
+  button .n { display:inline-grid; place-items:center; width:20px; height:20px; border-radius:50%; background:var(--accent-bg); color:var(--accent); font-size:12px; margin-right:6px; }
+  button.primary { background:var(--accent); border-color:var(--accent); color:#fff; }
+  button.primary .n { background:rgba(255,255,255,.25); color:#fff; }
+  :root[data-theme="dark"] button.primary { color:#0d1530; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) button.primary { color:#0d1530; } }
+  button.ghost { background:transparent; color:var(--mute); }
+  .killbox { display:flex; flex-direction:column; align-items:stretch; gap:4px; text-align:center; }
+  button.kill { background:var(--kill); border:0; color:var(--kill-ink); font-size:20px; font-weight:800; letter-spacing:.02em; padding:16px 30px; border-radius:12px; box-shadow:0 3px 0 rgba(0,0,0,.25); text-transform:uppercase; }
+  button.kill:active:not(:disabled) { transform:translateY(2px); box-shadow:0 1px 0 rgba(0,0,0,.25); }
+  .killbox small { color:var(--mute); font-size:12px; }
+  .chaos { grid-column:1 / -1; display:flex; flex-wrap:wrap; gap:8px; align-items:center; padding-top:12px; border-top:1px solid var(--line); font-size:14px; }
+  select { padding:8px 8px; }
+  #flash { min-height:20px; font-size:13px; color:var(--mute); }
+
+  /* runners */
+  .wrap { overflow-x:auto; -webkit-overflow-scrolling:touch; }
+  table { border-collapse:collapse; width:100%; min-width:760px; }
+  th, td { text-align:left; padding:10px 12px; border-bottom:1px solid var(--line); vertical-align:top; }
+  th { font-size:12px; color:var(--mute); text-transform:uppercase; letter-spacing:.05em; font-weight:650; background:var(--card2); }
+  th:first-child { border-top-left-radius:12px; } th:last-child { border-top-right-radius:12px; }
+  tr.task { cursor:pointer; } tr.task:hover td { background:var(--card2); }
+  tr.task.open td { background:var(--card2); border-bottom-color:transparent; }
+  .caret { display:inline-block; width:14px; color:var(--mute); transition:transform .15s; }
+  tr.open .caret { transform:rotate(90deg); }
+  .hid { color:var(--mute); font-size:12px; display:block; padding-left:14px; }
+  .pill { display:inline-flex; align-items:center; gap:6px; padding:2px 10px; border-radius:99px; font-size:12px; font-weight:650; border:1px solid var(--line); white-space:nowrap; text-transform:capitalize; }
+  .pill.covered, .pill.verified { color:var(--ok); border-color:var(--ok); background:var(--ok-bg); }
+  .pill.referred, .pill.awaiting_owner, .pill.not_found, .pill.intent { color:var(--warn); border-color:var(--warn); background:var(--warn-bg); }
+  .pill.blocked, .pill.mismatched, .pill.unable_to_determine, .pill.unknown { color:var(--bad); border-color:var(--bad); background:var(--bad-bg); }
+  .pill.not_confirmed, .pill.not_eligible { color:var(--mute); }
+  .pill.moving { color:var(--accent); border-color:var(--accent); background:var(--accent-bg); }
+  .pill.moving::before { content:""; width:6px; height:6px; border-radius:50%; background:currentColor; animation:pulse 1s infinite; }
+  .why { color:var(--mute); font-size:13px; max-width:44ch; }
+  .why.model { color:var(--ink); }
+  td.detail { padding:0 12px 16px; background:var(--card2); }
+  .detail-in { position:sticky; left:12px; max-width:calc(100vw - 58px); display:grid; grid-template-columns:3fr 2fr; gap:14px; align-items:start; }
+  .panel { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:12px 14px; min-width:0; }
+  .tl { list-style:none; margin:0; padding:0; }
+  .tl > li { padding:0 0 12px; }
+  .tl > li:last-child { padding-bottom:0; }
+  .tl .stephead { display:flex; flex-wrap:wrap; gap:6px 10px; align-items:center; font-weight:650; }
+  .tl .events { list-style:none; margin:6px 0 0 6px; padding:0 0 0 14px; border-left:2px solid var(--line); font-size:13px; }
+  .tl .events li { position:relative; padding:2px 0; display:flex; gap:10px; flex-wrap:wrap; }
+  .tl .events li::before { content:""; position:absolute; left:-20px; top:9px; width:10px; height:10px; border-radius:50%; background:var(--card); border:2px solid var(--mute); }
+  .tl .events li.ok::before { border-color:var(--ok); background:var(--ok); }
+  .tl .events li.warn::before { border-color:var(--warn); background:var(--warn); }
+  .tl .events li.bad::before { border-color:var(--bad); background:var(--bad); }
+  .tl .events li.recover { color:var(--ok); font-weight:600; }
+  .tl .events time { color:var(--mute); font-variant-numeric:tabular-nums; min-width:58px; }
+  .explain { font-size:15px; line-height:1.5; margin:0; }
+  .reasons { margin:0; padding-left:18px; font-size:14px; }
+  .kv { display:grid; grid-template-columns:auto 1fr; gap:4px 12px; font-size:14px; margin:8px 0 0; }
+  .kv dt { color:var(--mute); } .kv dd { margin:0; }
+  .gap { color:var(--bad); font-weight:650; }
+  .empty { padding:18px; color:var(--mute); }
+  .stack { display:grid; gap:12px; align-content:start; }
+
+  /* projector and phone */
+  @media (min-width:1400px) { body { font-size:16px; } main { max-width:1320px; } }
+  @media (max-width:900px) {
+    .board, .split { grid-template-columns:1fr; }
+    .detail-in { grid-template-columns:1fr; }
+  }
+  @media (max-width:640px) {
+    .tiles { grid-template-columns:repeat(3, 1fr); gap:8px; }
+    .tile { padding:10px; } .tile b { font-size:26px; } .tile span { font-size:12px; }
+    .missed { flex-direction:row; align-items:center; justify-content:flex-start; gap:6px 14px; flex-wrap:wrap; }
+    .missed small { flex-basis:100%; margin-top:0; }
+    .missed b { font-size:48px; }
+    .controls { grid-template-columns:1fr; }
+    .steps button { flex:1 1 100%; text-align:left; }
+    .systems { gap:8px; }
+    .sys .dup b { font-size:28px; }
+    h1 { font-size:21px; }
+  }
 </style>
 </head>
 <body>
 <main>
-  <h1>Raceday Cover Agent</h1>
-  <p class="sub">Covers every declared runner before it leaves the stable: one charge, one policy, one insurer record, even after a crash.</p>
-
-  <div class="row">
-    <button id="seed">Load race meeting</button>
-    <button id="confirmAll">Owners confirm fit to run</button>
-    <button id="start" class="primary">Start agent</button>
-    <button id="kill" class="danger">Kill agent</button>
-    <button id="reset">Reset</button>
-    <span id="state"></span>
-  </div>
+  <header class="head">
+    <div>
+      <h1>Raceday Cover Agent</h1>
+      <p class="sub">Covers every declared runner before it leaves the stable: one charge, one policy, one insurer record, even if the agent is killed halfway. All data is invented.</p>
+    </div>
+    <div class="agent" id="agent" role="status" aria-live="polite"><span class="dot"></span><span id="agentText">Connecting</span></div>
+  </header>
 
   <h2>Scoreboard</h2>
-  <div class="tiles" id="tiles"></div>
+  <section class="board">
+    <div class="card missed zero" id="missed"><span>Missed</span><b id="missedN">0</b><small>No declared runner left the stable without an outcome.</small></div>
+    <div class="tiles" id="tiles"></div>
+  </section>
 
-  <h2>Outside systems</h2>
-  <div class="tiles" id="systems"></div>
-  <div class="row" style="margin-top:10px">
-    <select id="chaosSystem"><option>payments</option><option>platform</option><option>insurer</option><option>notify</option></select>
-    <select id="chaosMode"><option value="drop_response">Lose the response</option><option value="reject">Reject</option><option value="rename_field">Rename fields</option></select>
-    <button id="chaos">Break next request</button>
+  <h2>Controls</h2>
+  <section class="card controls">
+    <div class="steps">
+      <button id="seed"><span class="n">1</span>Load race meeting</button>
+      <button id="confirmAll"><span class="n">2</span>Owners confirm fit to run</button>
+      <button id="start" class="primary"><span class="n">3</span>Start agent</button>
+      <button id="reset" class="ghost">Reset</button>
+    </div>
+    <div class="killbox">
+      <button id="kill" class="kill" aria-describedby="killNote">Kill agent</button>
+      <small id="killNote">Judge's button: pull the plug any time, then press Start agent.</small>
+    </div>
+    <div class="chaos">
+      <span>Break the next request to</span>
+      <select id="chaosSystem" aria-label="Outside system"><option value="payments">payments</option><option value="platform">platform</option><option value="insurer">insurer</option><option value="notify">notify</option></select>
+      <select id="chaosMode" aria-label="What goes wrong"><option value="drop_response">Lose the response</option><option value="reject">Reject</option><option value="rename_field">Rename fields</option></select>
+      <button id="chaos">Break it</button>
+      <span id="flash" aria-live="polite"></span>
+    </div>
+  </section>
+
+  <section class="split">
+    <div>
+      <h2>Outside systems: one record per horse</h2>
+      <div class="systems" id="systems"></div>
+      <p class="proof" id="proof"></p>
+    </div>
+    <div>
+      <h2>Agent log</h2>
+      <div class="card log"><ol id="log"><li><time></time><span class="mute">Waiting for activity.</span></li></ol></div>
+    </div>
+  </section>
+
+  <h2>Runners <span class="mute" style="text-transform:none;letter-spacing:0;font-weight:500">· tap a row to see the agent's proof</span></h2>
+  <div class="card wrap">
+    <table>
+      <thead><tr><th>Horse</th><th>Race</th><th>Status</th><th>Sum insured</th><th>Price</th><th>Why</th><th></th></tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
   </div>
-
-  <h2>Runners</h2>
-  <div class="wrap"><table><thead><tr><th>Horse</th><th>Race</th><th>Status</th><th>Sum insured</th><th>Price</th><th>Why</th><th></th></tr></thead><tbody id="rows"></tbody></table></div>
 </main>
 <script src="config.js"></script>
 <script>
 const API = window.API_BASE;
 const $ = id => document.getElementById(id);
-const call = (path, method = "GET", body) => fetch(API + path, { method, headers: { "content-type": "application/json" }, body: body ? JSON.stringify(body) : undefined }).then(r => r.json());
-const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+async function call(path, method = "GET", body) {
+  const r = await fetch(API + path, { method, headers: { "content-type": "application/json" }, body: body ? JSON.stringify(body) : undefined });
+  let data = null; try { data = await r.json(); } catch (_) {}
+  return { ok: r.ok, status: r.status, data };
+}
+const get = async path => { const r = await call(path); if (!r.ok) throw Object.assign(new Error(path), { status: r.status }); return r.data; };
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const label = s => String(s || "").replace(/_/g, " ");
-let tasks = [];
+const clock = t => { const d = t ? new Date(t) : null; return d && !isNaN(d) ? d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23" }) : ""; };
+const money = (n, cur) => {
+  if (n == null || n === "" || isNaN(n)) return "";
+  const v = Number(n), dp = v < 1000 ? 2 : 0;
+  try { return new Intl.NumberFormat(undefined, { style: "currency", currency: cur || "EUR", minimumFractionDigits: dp, maximumFractionDigits: dp }).format(v); }
+  catch (_) { return `${cur || ""} ${v.toLocaleString()}`; }
+};
+
+const DONE = new Set(["covered", "referred", "not_confirmed", "not_eligible"]);
+const STEPS = { charge: "Charge the owner", issue: "Issue the policy", report: "Report to the insurer", notify: "Notify the owner", refund: "Refund the owner" };
+const pillClass = s => DONE.has(s) || ["awaiting_owner", "blocked"].includes(s) ? s : "moving";
+
+let tasks = [], referrals = {}, actionsCache = {}, open = new Set();
+let lastStatus = {}, localLog = [], timelineOK = null, timelineRetryAt = 0, serverLog = [];
+let killedAt = null, wasRunning = null;
+
+function note(text, cls = "", at = new Date().toISOString()) {
+  localLog.push({ at, text, cls });
+  if (localLog.length > 200) localLog.shift();
+}
+
+/* ---------- reasons ---------- */
+function reasonList(t) {
+  const q = t.quote || {}, out = [];
+  if (t.referral_reason) out.push(t.referral_reason);
+  if (t.reason) out.push(t.reason);
+  if (t.blocked_at) out.push(`stopped safely at ${label(t.blocked_at)}: ${label(t.blocked_reason)}`);
+  (q.risk_factors || []).forEach(f => out.push(f.evidence || f.reason || f.factor || (typeof f === "string" ? f : "")));
+  (q.exclusions || []).forEach(x => out.push("excludes " + x));
+  if (q.valuation && q.valuation.gap_flagged) out.push("owner's value far above the evidence");
+  if (q.offerable && q.value_basis) out.push("value: " + q.value_basis);
+  return out.filter(Boolean);
+}
+const explanation = t => { const e = (t.quote || {}).explanation; return typeof e === "string" ? e : (e && (e.text || e.summary)) || ""; };
+
+/* ---------- ledger timeline ---------- */
+function ledgerHTML(actions) {
+  if (!actions) return `<p class="mute small">Loading the ledger...</p>`;
+  if (!actions.length) return `<p class="mute small">No outside system has been touched for this horse. Nothing was charged.</p>`;
+  return `<ol class="tl">${actions.map(a => {
+    const st = a.state || "intent", ev = [];
+    ev.push(`<li><time>${clock(a.created_at)}</time><span>Intent saved before any call <code>${esc(a.operation_id)}</code></span></li>`);
+    const n = Number(a.attempts || 0);
+    if (n === 0 && st === "verified") ev.push(`<li class="ok recover"><time></time><span>Read back first: already held from an earlier run. Not sent again.</span></li>`);
+    else if (n === 1) ev.push(`<li><time></time><span>Call sent with that operation ID</span></li>`);
+    else if (n > 1) ev.push(`<li class="warn"><time></time><span>Call sent ${n} times, every time with the same operation ID (the system keeps one)</span></li>`);
+    if (st === "intent") ev.push(`<li class="warn"><time>${clock(a.updated_at)}</time><span>Waiting to read back</span></li>`);
+    else {
+      const cls = st === "verified" ? "ok" : st === "not_found" ? "warn" : "bad";
+      const ref = a.evidence && (a.evidence.reference || (a.evidence.found && a.evidence.found.reference));
+      const words = { verified: "Read back: verified", not_found: "Read back: not found", mismatched: "Read back: mismatched, task stopped", unable_to_determine: "Read back: could not tell, task stopped safely" }[st] || "Read back: " + label(st);
+      ev.push(`<li class="${cls}"><time>${clock(a.updated_at)}</time><span>${words}${ref ? ` <code>${esc(ref)}</code>` : ""}</span></li>`);
+    }
+    return `<li><div class="stephead">${esc(STEPS[a.step] || label(a.step))} <span class="mute small">${esc(a.system)}</span> <span class="pill ${esc(st)}">${esc(label(st))}</span></div><ul class="events">${ev.join("")}</ul></li>`;
+  }).join("")}</ol>`;
+}
+
+function referralHTML(t) {
+  const r = referrals[t._id];
+  if (!r) return `<p class="mute small">Preparing the underwriter's pack...</p>`;
+  const p = r.pack || {}, q = p.quote || t.quote || {}, cur = q.currency;
+  const summary = typeof p.summary === "string" ? p.summary : (p.summary && (p.summary.text || p.summary.summary));
+  const head = `<p class="small"><b>No charge.</b> Sent to an underwriter${r.created_at ? " at " + clock(r.created_at) : ""}${r.decision ? ", decision: " + esc(label(r.decision.outcome || r.decision)) : ", awaiting decision"}.</p>`;
+  if (summary) return head + `<p class="explain">${esc(summary)}</p>`;
+  const val = p.agent_valuation || q.valuation || {};
+  const decl = (p.declarations || []).map(d => `${esc(d.date)}: ${d.fit ? "fit" : "<span class='gap'>not fit</span>"}`).join(", ");
+  return head + `<dl class="kv">
+    <dt>Why</dt><dd>${esc(p.why || r.reason)}</dd>
+    <dt>Owner's figure</dt><dd class="num ${val.gap_flagged ? "gap" : ""}">${p.owner_value != null ? money(p.owner_value, cur) : "none given (table default)"}</dd>
+    <dt>Our valuation</dt><dd><span class="num">${val.estimate != null ? money(val.estimate, cur) : "n/a"}</span>${(val.evidence || []).length ? `<br><span class="mute small">${val.evidence.map(esc).join("; ")}</span>` : ""}</dd>
+    ${p.rating ? `<dt>Rating</dt><dd>${esc(p.rating)}</dd>` : ""}
+    ${decl ? `<dt>Past declarations</dt><dd>${decl}</dd>` : ""}
+    ${p.deadline ? `<dt>Leaves stable</dt><dd>${clock(p.deadline)}</dd>` : ""}
+  </dl>`;
+}
+
+function detailHTML(t) {
+  const exp = explanation(t), rs = reasonList(t), q = t.quote || {};
+  const why = exp ? `<p class="explain">${esc(exp)}</p>` : rs.length ? `<ul class="reasons">${rs.map(r => `<li>${esc(r)}</li>`).join("")}</ul>` : `<p class="mute small">Not priced yet.</p>`;
+  const price = q.offerable ? `<dl class="kv"><dt>Premium</dt><dd class="num">${money(q.premium, q.currency)}${q.risk_adjustment && q.risk_adjustment !== 1 ? ` <span class="mute">(x${esc(q.risk_adjustment)} for risk)</span>` : ""}</dd><dt>Tax</dt><dd class="num">${money(q.tax, q.currency)}</dd><dt>Total</dt><dd class="num"><b>${money(q.total, q.currency)}</b></dd></dl>` : "";
+  const side = [`<div class="panel"><h3>${exp ? "Agent's explanation" : "Why this price"}</h3>${why}${price}</div>`];
+  if (t.status === "referred" || referrals[t._id]) side.push(`<div class="panel"><h3>Underwriter's pack</h3>${referralHTML(t)}</div>`);
+  return `<div class="detail-in"><div class="panel"><h3>Ledger: what was intended and what was proven</h3>${ledgerHTML(actionsCache[t._id])}</div><div class="stack">${side.join("")}</div></div>`;
+}
+
+/* ---------- render ---------- */
+function renderRows() {
+  if (!tasks.length) { $("rows").dataset.h = ""; $("rows").innerHTML = `<tr><td colspan="7" class="empty">No runners yet. Press <b>Load race meeting</b>.</td></tr>`; return; }
+  const html = tasks.map(t => {
+    const q = t.quote || {}, isOpen = open.has(t._id), exp = explanation(t);
+    const why = exp ? `<span class="why model">${esc(exp)}</span>` : `<span class="why">${esc(reasonList(t).join(" · "))}</span>`;
+    const ask = t.status === "awaiting_owner" && !t.confirmation ? `<button data-fit="${esc(t._id)}">Fit to run</button>` : "";
+    const row = `<tr class="task${isOpen ? " open" : ""}" data-id="${esc(t._id)}" tabindex="0" aria-expanded="${isOpen}">
+      <td><span class="caret">&#9656;</span><b>${esc(t.horse)}</b><span class="hid">${esc(t.horse_id)}</span></td>
+      <td>${esc((t.race || {}).race_name)}<span class="hid" style="padding:0">${esc((t.race || {}).type)} · off ${clock((t.race || {}).off_dt)}</span></td>
+      <td><span class="pill ${pillClass(t.status)}">${esc(label(t.status))}</span></td>
+      <td class="num">${q.offerable ? money(q.sum_insured, q.currency) : ""}</td>
+      <td class="num">${q.offerable ? money(q.total, q.currency) : ""}</td>
+      <td>${why}</td><td>${ask}</td></tr>`;
+    return row + (isOpen ? `<tr class="detailrow"><td colspan="7" class="detail">${detailHTML(t)}</td></tr>` : "");
+  }).join("");
+  if ($("rows").dataset.h === html) return;  // unchanged: keep focus and scroll
+  const focused = document.activeElement && document.activeElement.closest && document.activeElement.closest("tr.task");
+  $("rows").innerHTML = html; $("rows").dataset.h = html;
+  if (focused) { const again = document.querySelector(`tr.task[data-id="${CSS.escape(focused.dataset.id)}"]`); if (again) again.focus(); }
+}
+
+function renderLog() {
+  const items = [...serverLog, ...localLog].sort((a, b) => String(a.at).localeCompare(String(b.at))).slice(-60).reverse();
+  if (!items.length) return;
+  const box = $("log"), html = items.map(e => `<li><time>${clock(e.at)}</time><span class="${e.cls || ""}">${esc(e.text)}</span></li>`).join("");
+  if (box.dataset.h !== html) { box.innerHTML = html; box.dataset.h = html; }
+}
+
+function normaliseTimeline(data) {
+  const list = Array.isArray(data) ? data : (data && (data.events || data.timeline || data.items)) || [];
+  return list.map(e => {
+    const at = e.at || e.ts || e.time || e.created_at || e.updated_at;
+    const who = e.horse || (tasks.find(t => t._id === e.task_id) || {}).horse;
+    const what = e.message || e.text || e.summary || e.detail || [label(e.event || e.kind || e.type), e.step && label(e.step), e.state && label(e.state)].filter(Boolean).join(": ");
+    const k = String(e.kind || e.event || e.type || e.state || "").toLowerCase();
+    const cls = /kill|crash|lost|reject|mismatch|fail|error/.test(k) ? "bad" : /recover|resum|verified|found/.test(k) ? "good" : /retry|resend|re-send|refer/.test(k) ? "warn" : "";
+    return { at, text: (who ? who + ": " : "") + what, cls };
+  });
+}
+
+async function pollTimeline() {
+  if (timelineOK === false && Date.now() < timelineRetryAt) return;
+  try {
+    const r = await call("/timeline?task_id=");
+    if (r.status === 404) { timelineOK = false; timelineRetryAt = Date.now() + 20000; serverLog = []; return; }
+    if (r.ok) { timelineOK = true; serverLog = normaliseTimeline(r.data); }
+  } catch (_) { timelineOK = false; timelineRetryAt = Date.now() + 20000; }
+}
 
 async function refresh() {
-  try {
-    const [board, list] = await Promise.all([call("/scoreboard"), call("/tasks")]);
-    tasks = list;
-    $("state").textContent = board.agent_running ? "Agent is running" : "Agent is stopped";
-    const missed = 0;
-    $("tiles").innerHTML = [["Declared", board.declared], ["Covered", board.covered], ["Referred", board.referred],
-      ["Not confirmed", board.not_confirmed], ["In progress", board.in_progress], ["Missed", missed]]
-      .map(([k, v]) => `<div class="tile"><b>${v}</b><span>${k}</span></div>`).join("");
-    $("systems").innerHTML = Object.entries(board.systems).map(([k, v]) =>
-      `<div class="tile"><b>${v.records}</b><span>${esc(k)} records, ${v.duplicates} duplicates</span></div>`).join("");
-    $("rows").innerHTML = list.map(t => {
-      const q = t.quote || {};
-      const reasons = [];
-      if (t.referral_reason) reasons.push(t.referral_reason);
-      if (t.reason) reasons.push(t.reason);
-      (q.risk_factors || []).forEach(f => reasons.push(f.evidence));
-      (q.exclusions || []).forEach(x => reasons.push("excludes " + x));
-      if (q.valuation && q.valuation.gap_flagged) reasons.push(`owner's value far above evidence (${(q.valuation.evidence || []).join(", ")})`);
-      if (q.offerable) reasons.push(q.value_basis);
-      const money = n => `${esc(q.currency)} ${Number(n).toLocaleString(undefined, { maximumFractionDigits: 2, minimumFractionDigits: n < 1000 ? 2 : 0 })}`;
-      const ask = t.status === "awaiting_owner" ? `<button data-fit="${esc(t._id)}">Fit to run</button>` : "";
-      return `<tr><td>${esc(t.horse)} <span class="why">${esc(t.horse_id)}</span></td><td>${esc(t.race.race_name)}</td><td><span class="pill ${esc(t.status)}">${esc(label(t.status))}</span></td><td class="num">${q.offerable ? money(q.sum_insured) : ""}</td><td class="num">${q.offerable ? money(q.total) : ""}</td><td class="why">${esc(reasons.join(" · "))}</td><td>${ask}</td></tr>`;
-    }).join("") || `<tr><td colspan="7" class="why">No runners yet. Load the race meeting.</td></tr>`;
-  } catch (e) { $("state").textContent = "Cannot reach the API at " + API; }
+  let board;
+  try { [board, tasks] = await Promise.all([get("/scoreboard"), get("/tasks")]); }
+  catch (e) { $("agent").className = "agent offline"; $("agentText").textContent = "API unreachable"; $("flash").textContent = "Cannot reach the API at " + API; return; }
+
+  // agent state
+  const running = !!board.agent_running;
+  if (wasRunning === true && !running && !killedAt) note("Agent process stopped", "warn");
+  wasRunning = running;
+  if (running) killedAt = null;
+  $("agent").className = "agent " + (running ? "running" : killedAt ? "killed" : "");
+  $("agentText").textContent = running ? "Agent running" : killedAt ? `Agent killed at ${clock(killedAt)}` : "Agent stopped";
+
+  // status changes -> local log
+  const byId = Object.fromEntries(tasks.map(t => [t._id, t]));
+  for (const t of tasks) {
+    const prev = lastStatus[t._id];
+    if (prev && prev !== t.status) {
+      const cls = t.status === "covered" ? "good" : ["referred", "awaiting_owner"].includes(t.status) ? "warn" : t.status === "blocked" ? "bad" : "";
+      note(`${t.horse}: ${label(prev)} → ${label(t.status)}`, cls, t.updated_at || undefined);
+    }
+  }
+  lastStatus = Object.fromEntries(tasks.map(t => [t._id, t.status]));
+  open.forEach(id => { if (!byId[id]) open.delete(id); });
+
+  // scoreboard
+  const now = Date.now();
+  // Missed = a runner that left the stable stuck part-way (stopped, or mid-write) with no accounted outcome.
+  // Runners the agent has not reached yet are not missed: it will close them as not confirmed or not eligible.
+  const STUCK = new Set(["blocked", "charged", "issued", "reported"]);
+  const missed = tasks.filter(t => STUCK.has(t.status) && t.deadline && new Date(t.deadline).getTime() < now).length;
+  $("missedN").textContent = missed;
+  $("missed").className = "card missed " + (missed ? "some" : "zero");
+  $("missed").querySelector("small").textContent = missed ? "Runner(s) left the stable part-way through, with no accounted outcome." : board.declared ? "Every declared runner is covered, referred, not confirmed, not eligible or still in hand." : "Load the race meeting to start.";
+  const tiles = [["Declared", board.declared, ""], ["Covered", board.covered, "covered"], ["Referred", board.referred, "referred"],
+    ["Not confirmed", board.not_confirmed, ""], ["Not eligible", board.not_eligible, ""], ["In progress", board.in_progress, "progress"]];
+  $("tiles").innerHTML = tiles.map(([k, v, c]) => `<div class="card tile ${c}"><b>${v ?? 0}</b><span>${k}</span></div>`).join("");
+
+  // systems
+  const sys = Object.entries(board.systems || {});
+  const dupTotal = sys.reduce((s, [, v]) => s + (v.duplicates || 0), 0);
+  $("systems").innerHTML = sys.map(([k, v]) => `<div class="card sys ${v.duplicates ? "dirty" : "clean"}"><span class="name">${esc(k)}</span><span class="dup"><b>${v.duplicates}</b><em>duplicate${v.duplicates === 1 ? "" : "s"}</em></span><span class="mute small num">${v.records} record${v.records === 1 ? "" : "s"}</span></div>`).join("");
+  $("proof").innerHTML = dupTotal ? `<b class="gap">${dupTotal} duplicate effect(s) found.</b>` : `Every horse has at most one charge, one policy, one insurer record and one message, however many times the agent was killed.`;
+
+  // referrals + expanded ledgers
+  const jobs = [pollTimeline()];
+  if (tasks.some(t => t.status === "referred")) jobs.push(call("/referrals").then(r => { if (r.ok && Array.isArray(r.data)) referrals = Object.fromEntries(r.data.map(x => [x.task_id || x._id, x])); }).catch(() => {}));
+  open.forEach(id => jobs.push(call(`/tasks/${encodeURIComponent(id)}/actions`).then(r => { if (r.ok) actionsCache[id] = r.data; }).catch(() => {})));
+  await Promise.all(jobs);
+  renderRows();
+  renderLog();
 }
-const act = (id, fn) => $(id).addEventListener("click", async () => { $(id).disabled = true; try { await fn(); } finally { $(id).disabled = false; refresh(); } });
-act("seed", () => call("/control/seed", "POST"));
-act("start", () => call("/control/start", "POST"));
-act("kill", () => call("/control/kill", "POST"));
-act("reset", () => call("/control/reset", "POST"));
-act("chaos", () => call("/mocks/chaos", "POST", { system: $("chaosSystem").value, mode: $("chaosMode").value, count: 1 }));
-act("confirmAll", () => Promise.all(tasks.filter(t => !t.confirmation).map(t => call(`/tasks/${t._id}/confirm`, "POST", { fit: true }))));
-$("rows").addEventListener("click", async e => { const id = e.target.dataset.fit; if (id) { await call(`/tasks/${id}/confirm`, "POST", { fit: true }); refresh(); } });
+
+/* ---------- controls ---------- */
+const flash = t => { $("flash").textContent = t; };
+// Load and Reset lock the other step buttons until they finish, so a fast presenter cannot confirm before the runners exist.
+const LOCKING = new Set(["seed", "reset"]), STEP_IDS = ["seed", "confirmAll", "start", "reset"];
+const act = (id, fn) => $(id).addEventListener("click", async () => {
+  const lock = LOCKING.has(id) ? STEP_IDS : [id];
+  lock.forEach(b => $(b).disabled = true);
+  if (LOCKING.has(id)) flash(id === "seed" ? "Loading the race meeting..." : "Resetting...");
+  try { await fn(); if (LOCKING.has(id)) flash(""); } catch (e) { flash("Request failed: " + e.message); } finally { lock.forEach(b => $(b).disabled = false); refresh(); }
+});
+act("seed", async () => { const r = await call("/control/seed", "POST"); note(r.ok ? `Race meeting loaded: ${r.data.runners ?? "?"} runners` : "Load failed"); });
+act("start", async () => { const r = await call("/control/start", "POST"); killedAt = null; note(r.data && r.data.already_running ? "Agent already running" : "Agent started: reads its ledger back before doing anything", "good"); });
+act("kill", async () => {
+  const r = await call("/control/kill", "POST");
+  if (r.data && r.data.was_running) { killedAt = new Date().toISOString(); note("Agent KILLED (SIGKILL, no clean-up)", "bad", killedAt); flash("Killed. Press Start agent: it will resume without repeating anything."); }
+  else note("Kill pressed: agent was not running", "warn");
+});
+act("reset", async () => {
+  if (!confirm("Reset clears every task, ledger entry and mock record in this demo database. Continue?")) return;
+  await call("/control/reset", "POST"); open.clear(); actionsCache = {}; referrals = {}; lastStatus = {}; localLog = []; killedAt = null; note("Demo reset");
+});
+act("chaos", async () => {
+  const system = $("chaosSystem").value, mode = $("chaosMode").value;
+  const r = await call("/mocks/chaos", "POST", { system, mode, count: 1 });
+  const what = $("chaosMode").selectedOptions[0].textContent.toLowerCase();
+  note(r.ok ? `Chaos armed: next ${system} request will ${what}` : "Chaos failed", "warn");
+  flash(r.ok ? `Armed: next ${system} request will ${what}.` : "Could not arm chaos.");
+});
+act("confirmAll", async () => {
+  const todo = tasks.filter(t => !t.confirmation && !DONE.has(t.status));
+  const res = await Promise.all(todo.map(t => call(`/tasks/${encodeURIComponent(t._id)}/confirm`, "POST", { fit: true })));
+  const ok = res.filter(r => r.ok).length;
+  note(`Owners confirmed fit to run: ${ok} runner${ok === 1 ? "" : "s"}${res.length - ok ? `, ${res.length - ok} too late (left the stable)` : ""}`);
+});
+
+function toggle(id) {
+  if (open.has(id)) open.delete(id); else { open.add(id); call(`/tasks/${encodeURIComponent(id)}/actions`).then(r => { if (r.ok) { actionsCache[id] = r.data; renderRows(); } }); }
+  renderRows();
+}
+$("rows").addEventListener("click", async e => {
+  const fit = e.target.closest("[data-fit]");
+  if (fit) { e.stopPropagation(); fit.disabled = true; await call(`/tasks/${encodeURIComponent(fit.dataset.fit)}/confirm`, "POST", { fit: true }); refresh(); return; }
+  if (e.target.closest(".detailrow")) return;
+  const tr = e.target.closest("tr.task"); if (tr) toggle(tr.dataset.id);
+});
+$("rows").addEventListener("keydown", e => {
+  const tr = e.target.closest("tr.task");
+  if (tr && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); toggle(tr.dataset.id); const again = document.querySelector(`tr.task[data-id="${CSS.escape(tr.dataset.id)}"]`); if (again) again.focus(); }
+});
+
 refresh(); setInterval(refresh, 1500);
 </script>
 </body>
