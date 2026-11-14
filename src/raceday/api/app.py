@@ -11,12 +11,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from .. import db as dbm
 from .. import seed as seed_module
+from ..agent import voice
 from ..mocks.app import app as mocks_app
 from ..mocks.app import AFTER_WRITE as mocks_after_write
 from ..mocks.app import summary as mock_summary
@@ -158,3 +159,19 @@ def timeline(task_id: str | None = None, limit: int = 200):
     query = {"task_id": task_id} if task_id else {}
     rows = dbm.db()[dbm.TIMELINE].find(query, {"_id": 0}).sort("at", 1).limit(min(limit, 1000))
     return _clean(list(rows))
+
+
+@app.post("/tasks/{task_id}/call")
+def call_owner(task_id: str):
+    """The agent phones the owner: returns the spoken question as audio (ElevenLabs)."""
+    task = dbm.db()[dbm.TASKS].find_one({"_id": task_id})
+    if not task:
+        raise HTTPException(404, "unknown task")
+    text = voice.call_script(task)
+    try:
+        audio = voice.speak(text)
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(502, f"voice unavailable: {e}") from e
+    voice.log_call(task_id, text)
+    return Response(content=audio, media_type="audio/mpeg", headers={"X-Call-Script": text.encode("ascii", "ignore").decode()})
+

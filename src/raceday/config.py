@@ -13,3 +13,5 @@ PORT = int(os.environ.get("PORT", "8000"))
 MOCKS_URL = os.environ.get("MOCKS_URL", f"http://127.0.0.1:{PORT}/mocks")
 MODEL = os.environ.get("MODEL", "claude-sonnet-5-5")
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
+ELEVENLABS_API_KEY = os.environ.get("ELEVENLABS_API_KEY", "")
+ELEVENLABS_VOICE = os.environ.get("ELEVENLABS_VOICE", "JBFqnCBsd6RMkjVDRZzb")  # a warm British male voice
