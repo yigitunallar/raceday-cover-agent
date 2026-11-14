@@ -15,6 +15,7 @@ from langgraph.graph import END, START, StateGraph
 from .. import config, rules
 from .. import db as dbm
 from ..ledger import Outcome, guarded_write
+from . import writer
 from .tools import look_up, send
 
 
@@ -42,18 +43,49 @@ def _left_stable(task: dict[str, Any]) -> bool:
 def _refer(task: dict[str, Any], reason: str) -> State:
     d = dbm.db()
     profile = d[dbm.HORSE_PROFILES].find_one({"horse_id": task["horse_id"]}, {"_id": 0}) or {}
-    # TODO(agent): the model writes the one-page summary. For now the pack is the raw facts.
+    pack = {"why": reason, "horse": task.get("horse"), "quote": task.get("quote"),
+            "owner_value": task.get("stated_value"),
+            "agent_valuation": (task.get("quote") or {}).get("valuation"),
+            "rating": profile.get("official_rating"), "breeding": profile.get("breeding"),
+            "runs": profile.get("runs", []), "health_records": profile.get("health_records", []),
+            "declarations": profile.get("declarations", []), "deadline": task["deadline"]}
+    try:
+        pack.update(_summary(d, task, profile, reason))
+    except Exception as e:  # words are never worth blocking a referral for
+        pack.update(summary=None, summary_source="none", summary_meta={"error": repr(e)})
     d[dbm.REFERRALS].update_one({"_id": task["_id"]}, {"$set": {
-        "task_id": task["_id"], "reason": reason, "decision": None,
-        "pack": {"why": reason, "horse": task.get("horse"), "quote": task.get("quote"),
-                 "owner_value": task.get("stated_value"),
-                 "agent_valuation": (task.get("quote") or {}).get("valuation"),
-                 "rating": profile.get("official_rating"), "breeding": profile.get("breeding"),
-                 "runs": profile.get("runs", []), "health_records": profile.get("health_records", []),
-                 "declarations": profile.get("declarations", []), "deadline": task["deadline"]},
+        "task_id": task["_id"], "reason": reason, "decision": None, "pack": pack,
         "created_at": datetime.now(timezone.utc)}}, upsert=True)
     _set(task["_id"], status="referred", lane="referral", referral_reason=reason)
     return {"status": "referred"}
+
+
+def _summary(d, task: dict[str, Any], profile: dict[str, Any], reason: str) -> dict[str, Any]:
+    """The model's one-page summary for the underwriter. Written once: a resume reuses it."""
+    old = (d[dbm.REFERRALS].find_one({"_id": task["_id"]}, {"reason": 1, "pack": 1}) or {})
+    old_pack = old.get("pack") or {}
+    if old.get("reason") == reason and old_pack.get("summary"):
+        return {k: old_pack[k] for k in ("summary", "summary_source", "summary_meta") if k in old_pack}
+    rule_doc = d[dbm.INSURER_RULES].find_one(sort=[("version", -1)]) or rules.DEFAULT_RULES
+    w = writer.summarize_referral(task, profile, reason, rule_doc.get("authority_limit"))
+    return {"summary": w["text"], "summary_source": w["source"],
+            "summary_meta": {k: w.get(k) for k in ("model", "ms", "at", "fallback_reason", "rejected_text")}}
+
+
+def _explain(q: dict[str, Any], old: dict[str, Any] | None) -> dict[str, Any]:
+    """The model's one-sentence explanation of a price code already computed.
+
+    Written once per set of facts: a resume, or a re-run of this node while the
+    owner has not answered yet, reuses the stored sentence instead of calling again.
+    """
+    facts = writer.price_facts(q)
+    old = old or {}
+    if old.get("explanation") and old.get("explanation_facts") == facts:
+        return {**q, **{k: old[k] for k in ("explanation", "explanation_source", "explanation_meta",
+                                             "explanation_facts") if k in old}}
+    w = writer.explain_price(q)
+    return {**q, "explanation": w["text"], "explanation_source": w["source"], "explanation_facts": facts,
+            "explanation_meta": {k: w.get(k) for k in ("model", "ms", "at", "fallback_reason", "rejected_text")}}
 
 
 def price(state: State) -> State:
@@ -67,6 +99,11 @@ def price(state: State) -> State:
     rule_doc = d[dbm.INSURER_RULES].find_one(sort=[("version", -1)]) or rules.DEFAULT_RULES
     q = rules.quote(task["race"], task.get("runner", {}), task["ownership_share"], profile,
                     stated_value=task.get("stated_value"), add_ons=task.get("add_ons"), rules=rule_doc)
+    if q["offerable"]:
+        try:
+            q = _explain(q, task.get("quote"))
+        except Exception as e:  # words are never worth blocking a horse for
+            q = {**q, "explanation": None, "explanation_source": "none", "explanation_meta": {"error": repr(e)}}
     _set(task["_id"], quote=q)
     if not q["offerable"]:
         _set(task["_id"], status="not_eligible", reason=q["reason"])
