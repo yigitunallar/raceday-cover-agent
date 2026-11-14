@@ -17,7 +17,7 @@ from .. import db as dbm
 
 SYSTEMS = {"payments", "platform", "insurer", "notify", "refunds", "cancellations"}
 MODES = {"none", "drop_response", "reject", "rename_field"}
-AFTER_WRITE: list = []  # callables taking the system name, run after a write takes effect
+AFTER_WRITE: list = []  # callables taking (system, task_id), run after a write takes effect
 
 app = FastAPI(title="Mock outside systems")
 
@@ -62,7 +62,7 @@ def write(system: str, body: Write):
     # Demo hook: the write has taken effect; anything registered here (the API's
     # "kill after the next charge") runs before the caller hears back.
     for hook in AFTER_WRITE:
-        hook(system)
+        hook(system, ((doc or {}).get("payload") or {}).get("task_id"))
     if mode == "drop_response":
         # The write happened, but the caller never hears about it.
         raise HTTPException(504, "gateway timeout")
@@ -91,13 +91,15 @@ def chaos(body: Chaos):
 def summary():
     """Counts per system, and any task that ended up with more than one effect."""
     ops = dbm.db()[dbm.MOCK_OPS]
-    out: dict[str, Any] = {}
-    for system in sorted(SYSTEMS):
-        rows = list(ops.aggregate([
-            {"$match": {"system": system}},
-            {"$group": {"_id": "$payload.task_id", "n": {"$sum": 1}}},
-        ]))
-        out[system] = {"records": sum(r["n"] for r in rows), "duplicates": sum(r["n"] - 1 for r in rows if r["n"] > 1)}
+    out: dict[str, Any] = {system: {"records": 0, "duplicates": 0} for system in sorted(SYSTEMS)}
+    # One round trip: group by (system, task), then fold per system.
+    for row in ops.aggregate([
+        {"$match": {"system": {"$in": sorted(SYSTEMS)}}},
+        {"$group": {"_id": {"s": "$system", "t": "$payload.task_id"}, "n": {"$sum": 1}}},
+        {"$group": {"_id": "$_id.s", "records": {"$sum": "$n"},
+                    "duplicates": {"$sum": {"$cond": [{"$gt": ["$n", 1]}, {"$subtract": ["$n", 1]}, 0]}}}},
+    ]):
+        out[row["_id"]] = {"records": row["records"], "duplicates": row["duplicates"]}
     return out
 
 

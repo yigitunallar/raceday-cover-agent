@@ -101,7 +101,8 @@ def confirm(task_id: str, body: Confirmation):
 @app.get("/scoreboard")
 def scoreboard():
     counts: dict[str, int] = {}
-    for row in dbm.db()[dbm.TASKS].aggregate([{"$group": {"_id": "$status", "n": {"$sum": 1}}}]):
+    for row in dbm.db()[dbm.TASKS].aggregate([{"$match": {"quote_only": {"$ne": True}}},
+                                              {"$group": {"_id": "$status", "n": {"$sum": 1}}}]):
         counts[row["_id"]] = row["n"]
     declared = sum(counts.values())
     accounted = sum(counts.get(s, 0) for s in ("covered", "referred", "not_confirmed", "not_eligible", "cancelled"))
@@ -140,7 +141,16 @@ def control_kill():
         return {"ok": True, "was_running": False}
     _agent.send_signal(signal.SIGKILL)
     _agent.wait(timeout=5)
+    _log_killed(None, "Agent killed: the plug was pulled")
     return {"ok": True, "was_running": True}
+
+
+def _log_killed(task_id: str | None, message: str) -> None:
+    try:
+        dbm.db()[dbm.TIMELINE].insert_one({"task_id": task_id, "at": datetime.now(timezone.utc), "kind": "killed",
+                                           "detail": {"system": "agent", "message": message}, "duration_ms": None})
+    except Exception:  # noqa: BLE001 - logging never blocks a kill
+        pass
 
 
 @app.post("/control/kill-after-charge")
@@ -155,12 +165,13 @@ def control_kill_after_charge():
     return {"ok": True, "armed": True, "agent_running": _running()}
 
 
-def _kill_after_write(system: str) -> None:
+def _kill_after_write(system: str, task_id: str | None = None) -> None:
     doc = dbm.db()[dbm.MOCK_CHAOS].find_one_and_update(
         {"system": f"kill_after:{system}", "count": {"$gt": 0}}, {"$inc": {"count": -1}})
     if doc and _running():
         _agent.send_signal(signal.SIGKILL)
         _agent.wait(timeout=5)
+        _log_killed(task_id, "Agent killed right after the charge, before hearing back")
 
 
 mocks_after_write.append(_kill_after_write)

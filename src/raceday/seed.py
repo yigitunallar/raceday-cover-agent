@@ -36,7 +36,7 @@ RUNNERS = [
     ("hrs_d06", "Paper Comet", "rac_k3", "Filly", 3, None, "own_2", 1.0, None, [], "no_answer"),
     ("hrs_d07", "Second Draft", "rac_k6", "Gelding", 7, 118, "own_3", 1.0, None, [], "entry_stage"),
     ("hrs_d08", "Harbour Clerk", "rac_k2", "Gelding", 6, 76, "own_4", 1.0, None, [], "duplicate_name"),
-    ("hrs_d09", "Harbour Clerk", "rac_k5", "Gelding", 5, None, "own_1", 1.0, None, [], "duplicate_name"),
+    ("hrs_d09", "Harbour Light", "rac_k5", "Gelding", 5, None, "own_1", 1.0, None, [], "duplicate_name"),
     ("hrs_d10", "Winter Almanac", "rac_k3", "Colt", 3, None, "own_3", 0.5, None, [], "clean"),
     ("hrs_d11", "Plain Sailing", "rac_k4", "Gelding", 9, 131, "own_2", 1.0, None, ["vet_fees"], "clean"),
     ("hrs_d12", "Maple Verdict", "rac_k1", "Filly", 3, 98, "own_4", 1.0, None, [], "clean"),
