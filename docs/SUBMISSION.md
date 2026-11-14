@@ -12,10 +12,10 @@ What makes it Track 3:
 - **The model investigates like an underwriter.** Before pricing, it chooses which read-only evidence to check, one step at a time: a 260-day layoff leads it to the health records, an owner's 450,000 leads it to the sales history. Code refuses to price until the insurer's required checks are done.
 - **The model decides how to recover.** When a step can't be proven, it chooses the next move (read back again, re-send with the same ID, refund and escalate, escalate) from a menu that code limits.
 - **The model reasons, code decides.** The model explains each price in plain words and writes the underwriter's referral summary. Code computes every number and checks that every number the model writes is real.
-- **A voice for the one human moment.** The agent asks the owner "is the horse fit to run?" in a spoken call (ElevenLabs; simulated in the demo, a real phone call in production).
+- **A real phone call for the one human moment.** The agent rings the owner (ElevenLabs agent over a Twilio number) and asks "is the horse fit to run?". A clear yes or no is recorded through our API with who gave it; an unclear answer counts as no answer, never yes.
 - **Underwriting with humans only where the rules require them.** Horses above the insurer's authority limit, or whose declaration contradicts their history, go to an underwriter with a one-page pack and no charge.
 
-Built with MongoDB Atlas (sandbox M10: task state, action ledger, LangGraph checkpoints, Vector Search with automated embeddings over recovery cases), LangGraph, Claude, ElevenLabs, FastAPI, Render and Vercel. All data is invented.
+Built with MongoDB Atlas (sandbox M10: task state, action ledger, LangGraph checkpoints, Vector Search with automated embeddings over recovery cases), LangGraph, Claude, ElevenLabs, Twilio, FastAPI, Render and Vercel. All data is invented.
 
 - Live demo: https://raceday-cover-agent.vercel.app
 - Code: https://github.com/yigitunallar/raceday-cover-agent
